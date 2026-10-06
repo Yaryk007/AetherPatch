@@ -672,6 +672,8 @@
 				OTHER_LDFLAGS = (
 					"-ObjC",
 					"-lc++",
+					"-framework",
+					CoreMotion,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.aether.ps4ios;
 				SDKROOT = iphoneos;
@@ -772,6 +774,8 @@
 				OTHER_LDFLAGS = (
 					"-ObjC",
 					"-lc++",
+					"-framework",
+					CoreMotion,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.aether.ps4ios;
 				SDKROOT = iphoneos;
