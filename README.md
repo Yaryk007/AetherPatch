@@ -103,4 +103,4 @@ per-component licensing).
 
 ## Notice
 
-There won't be PodiumPatch but i will make PhantomPatch soon or later.
+Because Leviidev stopped updating aetherps4 focusing on hus, I will make my own updates and i do them diffrently
