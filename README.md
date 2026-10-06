@@ -65,3 +65,7 @@ See `PORTING.md` for platform-porting notes and `runtime/scripts/build-ipa.sh` f
 
 See `LICENSE` and `LICENSES/` (shadPS4 core is GPL-2.0-or-later; see `REUSE.toml` for
 per-component licensing).
+
+## Notice
+
+There won't be PodiumPatch but i will make PhantomPatch soon or later.
