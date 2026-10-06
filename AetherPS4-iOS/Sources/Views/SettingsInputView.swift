@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SettingsInputView: View {
     @AppStorage("touchControlsDisabled") private var touchControlsDisabled: Bool = false
+    @AppStorage("touchControlsShowWithController") private var showWithController: Bool = false
 
     private let store = ConfigStore.shared
 
@@ -28,6 +29,8 @@ struct SettingsInputView: View {
                     get: { !touchControlsDisabled },
                     set: { touchControlsDisabled = !$0 }
                 ))
+                Toggle("Show While a Controller Is Connected", isOn: $showWithController)
+                    .disabled(touchControlsDisabled)
                 NavigationLink("Customize Touch Control Layout") {
                     TouchControlsLayoutEditorView()
                 }

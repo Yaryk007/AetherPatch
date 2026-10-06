@@ -157,6 +157,11 @@ int shadps4_probe_jit(void);
 // shadps4_probe_jit(). Idempotent. Returns non-zero on success.
 int shadps4_jit_prewarm(uint32_t pool_mb, int detach);
 
+// How the game image fills the screen: 0 = Auto (keep aspect, letterbox), 1 = Stretch to
+// Window, 2 = Zoom to Fill (keep aspect, crop the overflow). Takes effect on the next frame;
+// safe to call at any time, before or during a game.
+void shadps4_set_aspect_mode(int mode);
+
 // Returns the raw UIWindow* SDL created for the currently-running game (as an untyped
 // pointer, so this header stays C/Objective-C-agnostic; bridge it back with
 // `(__bridge UIWindow *)` or Swift's `Unmanaged<UIWindow>.fromOpaque(...).takeUnretainedValue()`

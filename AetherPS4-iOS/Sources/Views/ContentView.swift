@@ -10,6 +10,8 @@ struct ContentView: View {
     @ObservedObject private var theme = AppTheme.shared
     /// "ps4" for the PS4-style home screen (default), "classic" for the tabbed library.
     @AppStorage("homeScreenStyle") private var homeScreenStyle = "ps4"
+    /// Off by default: JIT is still requested when a game starts (EmulatorProcess.launch).
+    @AppStorage("showStartupCheck") private var showStartupCheck = false
 
     var body: some View {
         Group {
@@ -22,7 +24,12 @@ struct ContentView: View {
         .tint(theme.accentColor)
         // fullScreenCover (not .sheet): no swipe-to-dismiss, so the only way past this
         // is actually passing both checks -- matches "only let them proceed if" working.
-        .fullScreenCover(isPresented: Binding(get: { !setupVerified }, set: { _ in })) {
+        .task {
+            if !showStartupCheck {
+                emulator.resumeIfRestartPending()
+            }
+        }
+        .fullScreenCover(isPresented: Binding(get: { showStartupCheck && !setupVerified }, set: { _ in })) {
             SetupCheckView(onPassed: {
                 setupVerified = true
                 // Only meaningful right after a restart prompt's exit(0) brought the app

@@ -21,6 +21,9 @@ struct SettingsGraphicsView: View {
     ]
     @State private var selectedResolutionId = "720p"
 
+    /// See shadps4_set_aspect_mode. Applied live, and again at every game launch.
+    @AppStorage("aspectRatioMode") private var aspectRatioMode = 0
+
     // GPU / Rendering
     @State private var nullGpu = false
     @State private var dumpShaders = false
@@ -56,6 +59,19 @@ struct SettingsGraphicsView: View {
                 Text("Higher resolutions look sharper but cost significantly more GPU performance. Takes effect the next time you start a game.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            }
+
+            Section {
+                Picker("Aspect Ratio", selection: $aspectRatioMode) {
+                    Text("Auto (16:9)").tag(0)
+                    Text("Stretch to Window").tag(1)
+                    Text("Zoom to Fill").tag(2)
+                }
+                .onChange(of: aspectRatioMode) { _, mode in shadps4_set_aspect_mode(Int32(mode)) }
+            } header: {
+                Text("Widescreen")
+            } footer: {
+                Text("Auto keeps the game's 16:9 picture with black bars on wider screens. Stretch to Window fills the screen by stretching the picture. Zoom to Fill fills it without distortion by cropping the top and bottom.")
             }
 
             Section("GPU & Rendering") {

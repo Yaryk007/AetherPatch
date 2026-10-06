@@ -177,7 +177,7 @@ struct GeneralSettings {
     Setting<bool> trophy_popup_disabled{false};
     Setting<double> trophy_notification_duration{6.0};
     Setting<std::string> trophy_notification_side{"right"};
-    Setting<bool> show_splash{false};
+    Setting<bool> show_splash{true};
     Setting<bool> connected_to_network{true};
     Setting<bool> discord_rpc_enabled{false};
     Setting<bool> show_fps_counter{false};

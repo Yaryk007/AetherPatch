@@ -13,6 +13,7 @@ struct SettingsPersonalizationView: View {
     @State private var customColor: Color = .blue
     @AppStorage("homeScreenStyle") private var homeScreenStyle = "ps4"
     @AppStorage("homeMenuSounds") private var homeMenuSounds = true
+    @AppStorage("showStartupCheck") private var showStartupCheck = false
 
     var body: some View {
         Form {
@@ -70,6 +71,12 @@ struct SettingsPersonalizationView: View {
                 Text("Home Screen")
             } footer: {
                 Text("PS4 shows your games in a console-style row you can drive with a controller. Classic is the tabbed library.")
+            }
+
+            Section {
+                Toggle("Startup Check", isOn: $showStartupCheck)
+            } footer: {
+                Text("Shows the JIT and increased-memory-limit check every time the app opens. When it's off, JIT is still requested from StikDebug when you start a game.")
             }
 
             Section("Theme Color") {

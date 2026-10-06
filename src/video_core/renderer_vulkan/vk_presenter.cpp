@@ -120,6 +120,34 @@ static vk::Rect2D FitImage(s32 frame_width, s32 frame_height, s32 swapchain_widt
     return vk::Rect2D{{offset_x, offset_y}, {dst_width, dst_height}};
 }
 
+// How the game image fills the screen, like Dolphin's aspect ratio options. Set from the iOS
+// app (shadps4_set_aspect_mode); read every frame.
+static std::atomic<int> g_aspect_mode{0};
+
+// 0 = Auto (keep the game's aspect, letterbox), 1 = Stretch to Window, 2 = Zoom to Fill (keep
+// the aspect and crop whatever overflows the screen, so wide phones have no black bars).
+static vk::Rect2D PlaceGameImage(s32 frame_width, s32 frame_height, s32 area_width,
+                                 s32 area_height) {
+    switch (g_aspect_mode.load(std::memory_order_relaxed)) {
+    case 1:
+        return vk::Rect2D{{0, 0}, {static_cast<u32>(area_width), static_cast<u32>(area_height)}};
+    case 2: {
+        const float scale = std::max(static_cast<float>(area_width) / frame_width,
+                                     static_cast<float>(area_height) / frame_height);
+        const s32 width = static_cast<s32>(frame_width * scale);
+        const s32 height = static_cast<s32>(frame_height * scale);
+        return vk::Rect2D{{(area_width - width) / 2, (area_height - height) / 2},
+                          {static_cast<u32>(width), static_cast<u32>(height)}};
+    }
+    default:
+        return FitImage(frame_width, frame_height, area_width, area_height);
+    }
+}
+
+void SetPresentAspectMode(int mode) {
+    g_aspect_mode.store(mode, std::memory_order_relaxed);
+}
+
 [[nodiscard]] vk::ImageBlit MakeImageBlitFit(s32 frame_width, s32 frame_height, s32 swapchain_width,
                                              s32 swapchain_height) {
     const auto& dst_rect = FitImage(frame_width, frame_height, swapchain_width, swapchain_height);
@@ -1074,8 +1102,8 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame) {
                 ImVec2 contentArea = ImGui::GetContentRegionAvail();
                 SetExpectedGameSize((s32)contentArea.x, (s32)contentArea.y);
 
-                const auto imgRect =
-                    FitImage(game_width, game_height, (s32)contentArea.x, (s32)contentArea.y);
+                const auto imgRect = PlaceGameImage(game_width, game_height, (s32)contentArea.x,
+                                                    (s32)contentArea.y);
                 ImVec2 offset{
                     static_cast<float>(imgRect.offset.x),
                     static_cast<float>(imgRect.offset.y),

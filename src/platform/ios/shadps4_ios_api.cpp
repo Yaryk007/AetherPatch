@@ -270,6 +270,14 @@ extern "C" int shadps4_jit_prewarm(uint32_t pool_mb, int detach) {
     return Core::IosJitAllocator::Prewarm(bytes, detach != 0) ? 1 : 0;
 }
 
+namespace Vulkan {
+void SetPresentAspectMode(int mode);
+}
+
+extern "C" void shadps4_set_aspect_mode(int mode) {
+    Vulkan::SetPresentAspectMode(std::clamp(mode, 0, 2));
+}
+
 extern "C" void* shadps4_get_uikit_window() {
     if (!g_init_ok) {
         return nullptr;

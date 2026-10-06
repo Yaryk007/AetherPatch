@@ -65,6 +65,7 @@ final class EmulatorProcess {
         }
 
         configureJITEnvVars()
+        shadps4_set_aspect_mode(Int32(UserDefaults.standard.integer(forKey: "aspectRatioMode")))
         isPreparingToLaunch = true
 
         // Request the rotation and actually wait for it to finish animating before

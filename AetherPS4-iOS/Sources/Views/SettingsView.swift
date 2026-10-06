@@ -18,6 +18,12 @@ struct SettingsView: View {
             }
 
             Section {
+                settingsRow(title: "Personalization", systemImage: "paintbrush.fill", tint: .mint) {
+                    SettingsPersonalizationView()
+                }
+            }
+
+            Section {
                 settingsRow(title: "Display & Performance", systemImage: "gauge.with.dots.needle.67percent", tint: .blue) {
                     SettingsDisplayPerformanceView()
                 }
@@ -50,12 +56,6 @@ struct SettingsView: View {
                 }
                 settingsRow(title: "Advanced", systemImage: "wrench.and.screwdriver.fill", tint: .gray) {
                     SettingsAdvancedView()
-                }
-            }
-
-            Section {
-                settingsRow(title: "Socials", systemImage: "bubble.left.and.bubble.right.fill", tint: .cyan) {
-                    SettingsSocialsView()
                 }
             }
 

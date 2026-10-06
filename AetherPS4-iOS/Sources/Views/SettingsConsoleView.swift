@@ -6,7 +6,7 @@ struct SettingsConsoleView: View {
     @State private var neoMode = false
     @State private var devKitMode = false
     @State private var extraDmemMBytes = 0
-    @State private var showSplashScreen = false
+    @State private var showSplashScreen = true
 
     var body: some View {
         Form {
@@ -31,6 +31,6 @@ struct SettingsConsoleView: View {
         neoMode = store.bool("General", "neo_mode", default: false)
         devKitMode = store.bool("General", "dev_kit_mode", default: false)
         extraDmemMBytes = store.int("General", "extra_dmem_in_mbytes", default: 0)
-        showSplashScreen = store.bool("General", "show_splash", default: false)
+        showSplashScreen = store.bool("General", "show_splash", default: true)
     }
 }

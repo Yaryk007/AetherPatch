@@ -1,4 +1,5 @@
 import Darwin
+import GameController
 import SwiftUI
 import UIKit
 
@@ -214,6 +215,14 @@ private struct TouchControlsView: View {
     @StateObject private var state = TouchPadState()
     @StateObject private var perf = PerformanceOverlayState()
     @StateObject private var layout = TouchLayoutStore.shared
+    @StateObject private var controllers = ConnectedControllerMonitor()
+    @AppStorage("touchControlsShowWithController") private var showWithController = false
+
+    /// Touch controls drive the same pad slot a physical controller does, so they get out of
+    /// the way (live) while one is connected, unless the player asked to keep them.
+    private var showsControls: Bool {
+        controlsEnabled && (showWithController || !controllers.isConnected)
+    }
 
     /// Base position for a named control, offset by whatever the player has dragged it to in
     /// layout-edit mode (see LayoutHandle below). Keys are stable identifiers persisted in
@@ -234,7 +243,7 @@ private struct TouchControlsView: View {
             let h = geo.size.height
 
             ZStack {
-                if controlsEnabled {
+                if showsControls {
                 Group {
                     StickView(state: state, axisX: \.leftX, axisY: \.leftY)
                         .frame(width: u * 34, height: u * 34)
@@ -586,3 +595,30 @@ private struct SmallButton: View {
 // Layout editing (dragging each control to a new position) now lives entirely in
 // TouchControlsLayoutEditorView.swift, reachable from Settings, rather than in this overlay
 // -- see that file for LayoutHandle and the shared position formulas.
+
+/// Whether a gamepad (not just a keyboard or remote) is connected, kept up to date live.
+@MainActor
+final class ConnectedControllerMonitor: ObservableObject {
+    @Published private(set) var isConnected = ConnectedControllerMonitor.hasGamepad()
+    private var observers: [NSObjectProtocol] = []
+
+    init() {
+        for name in [Notification.Name.GCControllerDidConnect, .GCControllerDidDisconnect] {
+            observers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.isConnected = ConnectedControllerMonitor.hasGamepad()
+                }
+            })
+        }
+    }
+
+    deinit {
+        for observer in observers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+    }
+
+    nonisolated static func hasGamepad() -> Bool {
+        GCController.controllers().contains { $0.extendedGamepad != nil }
+    }
+}
