@@ -63,3 +63,11 @@ jobs:
           name: AetherPatch-ipa
           path: build/ipa/AetherPatch.ipa
           if-no-files-found: error
+
+      - name: Upload build log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-log
+          path: build/xcodebuild.log
+          if-no-files-found: ignore

@@ -109,6 +109,7 @@ if (( ${#missing[@]} )); then
 fi
 
 echo "==> [3/3] AetherPS4-iOS.app"
+mkdir -p "$ROOT/build"
 DERIVED="$ROOT/build/DerivedData"
 xcodebuild \
     -project "$PROJECT" \
@@ -120,7 +121,13 @@ xcodebuild \
     CODE_SIGNING_ALLOWED=NO \
     CODE_SIGNING_REQUIRED=NO \
     CODE_SIGN_IDENTITY="" \
-    build
+    build > "$ROOT/build/xcodebuild.log" 2>&1 || {
+    # The link command line alone is long enough to get the step log truncated, so print the
+    # diagnostics on their own (the full log is uploaded as a workflow artifact).
+    grep -E "error:|warning: ignoring|Undefined symbols|referenced from|^ +\"|ld: |\*\* BUILD" \
+        "$ROOT/build/xcodebuild.log" | cut -c1-400 | head -200
+    exit 65
+}
 
 APP="$DERIVED/Build/Products/Release-iphoneos/$SCHEME.app"
 [[ -d "$APP" ]] || { echo "error: $APP not found" >&2; exit 1; }
