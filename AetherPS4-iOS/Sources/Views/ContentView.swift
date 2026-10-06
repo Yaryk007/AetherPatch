@@ -8,8 +8,33 @@ struct ContentView: View {
 
     @Environment(EmulatorProcess.self) private var emulator
     @ObservedObject private var theme = AppTheme.shared
+    /// "ps4" for the PS4-style home screen (default), "classic" for the tabbed library.
+    @AppStorage("homeScreenStyle") private var homeScreenStyle = "ps4"
 
     var body: some View {
+        Group {
+            if homeScreenStyle == "classic" {
+                classicTabs
+            } else {
+                HomeMenuView()
+            }
+        }
+        .tint(theme.accentColor)
+        // fullScreenCover (not .sheet): no swipe-to-dismiss, so the only way past this
+        // is actually passing both checks -- matches "only let them proceed if" working.
+        .fullScreenCover(isPresented: Binding(get: { !setupVerified }, set: { _ in })) {
+            SetupCheckView(onPassed: {
+                setupVerified = true
+                // Only meaningful right after a restart prompt's exit(0) brought the app
+                // back up fresh -- see EmulatorProcess.resumeIfRestartPending()'s own
+                // comment. Gated on setup passing first since a normal launch() needs JIT
+                // attached too, same requirement this resume goes through.
+                emulator.resumeIfRestartPending()
+            })
+        }
+    }
+
+    private var classicTabs: some View {
         TabView {
             NavigationStack {
                 LibraryView()
@@ -32,19 +57,6 @@ struct ContentView: View {
                 Label("Settings", systemImage: "gearshape")
             }
         }
-        .tint(theme.accentColor)
         .background(theme.backgroundTint)
-        // fullScreenCover (not .sheet): no swipe-to-dismiss, so the only way past this
-        // is actually passing both checks -- matches "only let them proceed if" working.
-        .fullScreenCover(isPresented: Binding(get: { !setupVerified }, set: { _ in })) {
-            SetupCheckView(onPassed: {
-                setupVerified = true
-                // Only meaningful right after a restart prompt's exit(0) brought the app
-                // back up fresh -- see EmulatorProcess.resumeIfRestartPending()'s own
-                // comment. Gated on setup passing first since a normal launch() needs JIT
-                // attached too, same requirement this resume goes through.
-                emulator.resumeIfRestartPending()
-            })
-        }
     }
 }

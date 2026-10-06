@@ -11,6 +11,8 @@ struct SettingsPersonalizationView: View {
     @State private var usernameSaveFailed = false
     @State private var selectedPhotoItem: PhotosPickerItem?
     @State private var customColor: Color = .blue
+    @AppStorage("homeScreenStyle") private var homeScreenStyle = "ps4"
+    @AppStorage("homeMenuSounds") private var homeMenuSounds = true
 
     var body: some View {
         Form {
@@ -54,6 +56,20 @@ struct SettingsPersonalizationView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+            }
+
+            Section {
+                Picker("Style", selection: $homeScreenStyle) {
+                    Text("PS4").tag("ps4")
+                    Text("Classic").tag("classic")
+                }
+                if homeScreenStyle == "ps4" {
+                    Toggle("Navigation Sounds", isOn: $homeMenuSounds)
+                }
+            } header: {
+                Text("Home Screen")
+            } footer: {
+                Text("PS4 shows your games in a console-style row you can drive with a controller. Classic is the tabbed library.")
             }
 
             Section("Theme Color") {
