@@ -128,7 +128,8 @@ void GameController::Axis(Input::Axis axis, int value, bool smooth) {
 
 void GameController::ApplyRemoteState(OrbisPadButtonDataOffset buttons,
                                       const std::array<int, 6>& axes, bool touch_down,
-                                      float touch_x, float touch_y) {
+                                      float touch_x, float touch_y, bool touch2_down,
+                                      float touch2_x, float touch2_y) {
     std::lock_guard lock(m_states_queue_mutex);
     m_connected = true;
     m_connected_count = 1;
@@ -137,6 +138,7 @@ void GameController::ApplyRemoteState(OrbisPadButtonDataOffset buttons,
         m_state.OnAxis(static_cast<Input::Axis>(i), axes[i], false);
     }
     m_state.OnTouchpad(0, touch_down, touch_x, touch_y);
+    m_state.OnTouchpad(1, touch2_down, touch2_x, touch2_y);
     m_state.time = Libraries::Kernel::sceKernelGetProcessTime();
     m_states_queue.Push(m_state);
 }

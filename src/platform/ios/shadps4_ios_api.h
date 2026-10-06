@@ -162,6 +162,12 @@ int shadps4_jit_prewarm(uint32_t pool_mb, int detach);
 // safe to call at any time, before or during a game.
 void shadps4_set_aspect_mode(int mode);
 
+// Widescreen hack: render the next game at width x height (pass the device's aspect ratio)
+// instead of the configured 16:9 resolution, so games that size their view from the
+// reported screen show more at the sides. Pass 0, 0 to turn it off. Applies from the next
+// game launch.
+void shadps4_set_resolution_override(uint32_t width, uint32_t height);
+
 // Returns the raw UIWindow* SDL created for the currently-running game (as an untyped
 // pointer, so this header stays C/Objective-C-agnostic; bridge it back with
 // `(__bridge UIWindow *)` or Swift's `Unmanaged<UIWindow>.fromOpaque(...).takeUnretainedValue()`
@@ -209,6 +215,13 @@ void* shadps4_get_uikit_window(void);
 // no-op before shadps4_prepare_window() has succeeded.
 void shadps4_apply_touch_input(uint32_t buttons, int left_x, int left_y, int right_x,
                                 int right_y, int l2, int r2);
+
+// Same as shadps4_apply_touch_input, plus up to two fingers on the DualShock 4 touchpad.
+// Coordinates are normalized 0..1 across the pad (x left to right, y top to bottom); a
+// finger with *_down == 0 is lifted. Press the pad itself with SHADPS4_PAD_TOUCHPAD.
+void shadps4_apply_pad_state(uint32_t buttons, int left_x, int left_y, int right_x, int right_y,
+                             int l2, int r2, int touch1_down, float touch1_x, float touch1_y,
+                             int touch2_down, float touch2_x, float touch2_y);
 
 #ifdef __cplusplus
 }

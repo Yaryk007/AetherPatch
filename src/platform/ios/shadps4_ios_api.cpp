@@ -274,6 +274,10 @@ namespace Vulkan {
 void SetPresentAspectMode(int mode);
 }
 
+extern "C" void shadps4_set_resolution_override(uint32_t width, uint32_t height) {
+    Core::SetResolutionOverride(width, height);
+}
+
 extern "C" void shadps4_set_aspect_mode(int mode) {
     Vulkan::SetPresentAspectMode(std::clamp(mode, 0, 2));
 }
@@ -310,4 +314,21 @@ extern "C" void shadps4_apply_touch_input(uint32_t buttons, int left_x, int left
     const std::array<int, 6> axes = {left_x, left_y, right_x, right_y, l2, r2};
     (*controllers)[kTouchControllerSlot]->ApplyRemoteState(
         static_cast<Libraries::Pad::OrbisPadButtonDataOffset>(buttons), axes, false, 0.0f, 0.0f);
+}
+
+extern "C" void shadps4_apply_pad_state(uint32_t buttons, int left_x, int left_y, int right_x,
+                                        int right_y, int l2, int r2, int touch1_down,
+                                        float touch1_x, float touch1_y, int touch2_down,
+                                        float touch2_x, float touch2_y) {
+    if (!g_init_ok) {
+        return;
+    }
+    constexpr size_t kTouchControllerSlot = 0; // see shadps4_apply_touch_input
+    auto* controllers = Common::Singleton<Input::GameControllers>::Instance();
+    const std::array<int, 6> axes = {left_x, left_y, right_x, right_y, l2, r2};
+    const auto clamp01 = [](float v) { return std::clamp(v, 0.0f, 0.999f); };
+    (*controllers)[kTouchControllerSlot]->ApplyRemoteState(
+        static_cast<Libraries::Pad::OrbisPadButtonDataOffset>(buttons), axes, touch1_down != 0,
+        clamp01(touch1_x), clamp01(touch1_y), touch2_down != 0, clamp01(touch2_x),
+        clamp01(touch2_y));
 }

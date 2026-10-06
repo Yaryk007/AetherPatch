@@ -90,7 +90,7 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(profile.username)
                     .font(.title3.weight(.semibold))
-                Text("AetherPS4 Profile & Theme")
+                Text("AetherPatch Profile & Theme")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }

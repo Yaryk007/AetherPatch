@@ -13,17 +13,10 @@ struct TouchControlsLayoutEditorView: View {
 
     var body: some View {
         GeometryReader { geo in
-            // Same base-unit formula as TouchControlsOverlayWindow's TouchControlsView --
-            // must stay in sync with that file so a position dragged here matches where the
-            // real control actually ends up in-game.
-            let u = geo.size.height * 0.01 * 0.75
-            let w = geo.size.width
-            let h = geo.size.height
-
             ZStack {
                 Color.black.opacity(0.85)
 
-                ForEach(TouchControlLayoutSpec.all(u: u, w: w, h: h)) { spec in
+                ForEach(TouchControlLayoutSpec.all(size: geo.size)) { spec in
                     LayoutHandle(layout: layout, key: spec.key, label: spec.label,
                                 width: spec.width, height: spec.height)
                         .position(x: spec.x + layout.offset(for: spec.key).width,
@@ -58,48 +51,6 @@ struct TouchControlsLayoutEditorView: View {
         // lock/unlock EmulatorProcess uses for a real game session.
         .onAppear { emulator.lockToLandscape() }
         .onDisappear { emulator.unlockOrientation() }
-    }
-}
-
-// Mirrors the base (pre-offset) positions TouchControlsOverlayWindow's TouchControlsView
-// lays real controls out at. Kept in its own type, rather than shared code the real overlay
-// also calls, so this preview screen can never accidentally change real control behavior --
-// only their positions, through TouchLayoutStore, which both read independently.
-private struct TouchControlLayoutSpec: Identifiable {
-    let key: String
-    let label: String
-    let width: CGFloat
-    let height: CGFloat
-    let x: CGFloat
-    let y: CGFloat
-
-    var id: String { key }
-
-    static func all(u: CGFloat, w: CGFloat, h: CGFloat) -> [TouchControlLayoutSpec] {
-        [
-            TouchControlLayoutSpec(key: "leftStick", label: "L Stick", width: u * 34, height: u * 34,
-                                   x: u * 20, y: h - u * 22),
-            TouchControlLayoutSpec(key: "dpad", label: "D-Pad", width: u * 26, height: u * 26,
-                                   x: u * 22, y: u * 38),
-            TouchControlLayoutSpec(key: "rightStick", label: "R Stick", width: u * 34, height: u * 34,
-                                   x: w - u * 36, y: h - u * 22),
-            TouchControlLayoutSpec(key: "faceButtons", label: "Face", width: u * 54, height: u * 54,
-                                   x: w - u * 34, y: u * 47),
-            TouchControlLayoutSpec(key: "L1", label: "L1", width: u * 16, height: u * 8,
-                                   x: u * 10, y: u * 12),
-            TouchControlLayoutSpec(key: "L2", label: "L2", width: u * 16, height: u * 8,
-                                   x: u * 10, y: u * 2),
-            TouchControlLayoutSpec(key: "R1", label: "R1", width: u * 16, height: u * 8,
-                                   x: w - u * 40, y: u * 12),
-            TouchControlLayoutSpec(key: "R2", label: "R2", width: u * 16, height: u * 8,
-                                   x: w - u * 40, y: u * 2),
-            TouchControlLayoutSpec(key: "share", label: "SH", width: u * 9, height: u * 9,
-                                   x: w * 0.40, y: u * 6),
-            TouchControlLayoutSpec(key: "touchpad", label: "TP", width: u * 9, height: u * 9,
-                                   x: w * 0.50, y: u * 6),
-            TouchControlLayoutSpec(key: "options", label: "OPT", width: u * 9, height: u * 9,
-                                   x: w * 0.60, y: u * 6),
-        ]
     }
 }
 

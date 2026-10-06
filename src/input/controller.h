@@ -99,7 +99,8 @@ public:
     void Axis(Input::Axis axis, int value, bool smooth = true);
     void ApplyRemoteState(Libraries::Pad::OrbisPadButtonDataOffset buttons,
                           const std::array<int, 6>& axes, bool touch_down, float touch_x,
-                          float touch_y);
+                          float touch_y, bool touch2_down = false, float touch2_x = 0.0f,
+                          float touch2_y = 0.0f);
     void Gyro(int id);
     void Acceleration(int id);
     void UpdateGyro(const float gyro[3]);

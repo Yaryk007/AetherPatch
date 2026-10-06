@@ -3,6 +3,8 @@ import SwiftUI
 struct SettingsInputView: View {
     @AppStorage("touchControlsDisabled") private var touchControlsDisabled: Bool = false
     @AppStorage("touchControlsShowWithController") private var showWithController: Bool = false
+    @AppStorage("touchpadExpanded") private var touchpadExpanded: Bool = true
+    @AppStorage("touchControlsOpacity") private var controlsOpacity: Double = 0.85
 
     private let store = ConfigStore.shared
 
@@ -31,6 +33,11 @@ struct SettingsInputView: View {
                 ))
                 Toggle("Show While a Controller Is Connected", isOn: $showWithController)
                     .disabled(touchControlsDisabled)
+                Toggle("Expanded Touchpad", isOn: $touchpadExpanded)
+                VStack(alignment: .leading) {
+                    Text("Opacity: \(Int(controlsOpacity * 100))%")
+                    Slider(value: $controlsOpacity, in: 0.2...1)
+                }
                 NavigationLink("Customize Touch Control Layout") {
                     TouchControlsLayoutEditorView()
                 }

@@ -12,7 +12,7 @@ final class TouchLayoutStore: ObservableObject {
 
     @Published private(set) var offsets: [String: CGSize] = [:]
 
-    private let defaultsKey = "touchControlLayoutOffsets"
+    private let defaultsKey = "touchControlLayoutOffsetsV2"
 
     private init() {
         load()

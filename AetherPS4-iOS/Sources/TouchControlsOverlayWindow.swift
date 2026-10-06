@@ -75,9 +75,16 @@ private final class TouchPadState: ObservableObject {
     var rightY = 128
     var l2 = 0
     var r2 = 0
+    /// Fingers on the touchpad, normalized 0...1 across the pad (at most two).
+    var touches: [CGPoint] = []
+
+    private let haptics = UIImpactFeedbackGenerator(style: .light)
 
     func setButton(_ bit: UInt32, pressed: Bool) {
         if pressed {
+            if buttons & bit == 0 {
+                haptics.impactOccurred(intensity: 0.7)
+            }
             buttons |= bit
         } else {
             buttons &= ~bit
@@ -85,9 +92,21 @@ private final class TouchPadState: ObservableObject {
         send()
     }
 
+    /// A short press of `bit` (a click on the touchpad, or a stick click from a tap).
+    func pulse(_ bit: UInt32) {
+        setButton(bit, pressed: true)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.09) { [weak self] in
+            self?.setButton(bit, pressed: false)
+        }
+    }
+
     func send() {
-        shadps4_apply_touch_input(buttons, Int32(leftX), Int32(leftY), Int32(rightX),
-                                  Int32(rightY), Int32(l2), Int32(r2))
+        let t1 = touches.first
+        let t2 = touches.count > 1 ? touches[1] : nil
+        shadps4_apply_pad_state(buttons, Int32(leftX), Int32(leftY), Int32(rightX), Int32(rightY),
+                                Int32(l2), Int32(r2),
+                                t1 == nil ? 0 : 1, Float(t1?.x ?? 0), Float(t1?.y ?? 0),
+                                t2 == nil ? 0 : 1, Float(t2?.x ?? 0), Float(t2?.y ?? 0))
     }
 }
 
@@ -209,6 +228,52 @@ private struct PerformanceOverlayBadge: View {
     }
 }
 
+// MARK: - Layout
+
+/// Where each touch control sits by default (before the player's own offsets from the layout
+/// editor). Shared by the in-game overlay and TouchControlsLayoutEditorView so the two can
+/// never disagree. All lengths scale with the landscape screen height.
+struct TouchControlLayoutSpec: Identifiable {
+    let key: String
+    let label: String
+    let width: CGFloat
+    let height: CGFloat
+    let x: CGFloat
+    let y: CGFloat
+
+    var id: String { key }
+
+    static func all(size: CGSize) -> [TouchControlLayoutSpec] {
+        let w = size.width
+        let h = size.height
+        let u = h / 100
+        // Keep clear of the notch / Dynamic Island on either side in landscape.
+        let edge = max(u * 9, 34)
+        let stick = u * 31
+        let dpad = u * 28
+        let face = u * 38
+        let padWidth = min(w * 0.36, u * 82)
+        let padHeight = u * 20
+        let shoulderWidth = u * 18
+        let shoulderHeight = u * 9
+        var specs: [TouchControlLayoutSpec] = []
+        specs.append(TouchControlLayoutSpec(key: "touchpad", label: "Touchpad", width: padWidth, height: padHeight, x: w / 2, y: u * 14))
+        specs.append(TouchControlLayoutSpec(key: "share", label: "Share", width: u * 11, height: u * 7, x: w / 2 - padWidth / 2 - u * 9, y: u * 9))
+        specs.append(TouchControlLayoutSpec(key: "options", label: "Options", width: u * 11, height: u * 7, x: w / 2 + padWidth / 2 + u * 9, y: u * 9))
+        specs.append(TouchControlLayoutSpec(key: "L2", label: "L2", width: shoulderWidth, height: shoulderHeight, x: edge + shoulderWidth / 2, y: u * 8))
+        specs.append(TouchControlLayoutSpec(key: "L1", label: "L1", width: shoulderWidth, height: shoulderHeight, x: edge + shoulderWidth / 2, y: u * 20))
+        specs.append(TouchControlLayoutSpec(key: "R2", label: "R2", width: shoulderWidth, height: shoulderHeight, x: w - edge - shoulderWidth / 2, y: u * 8))
+        specs.append(TouchControlLayoutSpec(key: "R1", label: "R1", width: shoulderWidth, height: shoulderHeight, x: w - edge - shoulderWidth / 2, y: u * 20))
+        specs.append(TouchControlLayoutSpec(key: "leftStick", label: "L Stick", width: stick, height: stick, x: edge + stick / 2, y: u * 53))
+        specs.append(TouchControlLayoutSpec(key: "dpad", label: "D-Pad", width: dpad, height: dpad, x: edge + stick + dpad * 0.3, y: u * 81))
+        specs.append(TouchControlLayoutSpec(key: "faceButtons", label: "Buttons", width: face, height: face, x: w - edge - face / 2, y: u * 52))
+        specs.append(TouchControlLayoutSpec(key: "rightStick", label: "R Stick", width: stick, height: stick, x: w - edge - stick - dpad * 0.3, y: u * 81))
+        return specs
+    }
+}
+
+// MARK: - Overlay
+
 private struct TouchControlsView: View {
     let controlsEnabled: Bool
 
@@ -217,6 +282,8 @@ private struct TouchControlsView: View {
     @StateObject private var layout = TouchLayoutStore.shared
     @StateObject private var controllers = ConnectedControllerMonitor()
     @AppStorage("touchControlsShowWithController") private var showWithController = false
+    @AppStorage("touchpadExpanded") private var touchpadExpanded = true
+    @AppStorage("touchControlsOpacity") private var controlsOpacity = 0.85
 
     /// Touch controls drive the same pad slot a physical controller does, so they get out of
     /// the way (live) while one is connected, unless the player asked to keep them.
@@ -224,87 +291,361 @@ private struct TouchControlsView: View {
         controlsEnabled && (showWithController || !controllers.isConnected)
     }
 
-    /// Base position for a named control, offset by whatever the player has dragged it to in
-    /// layout-edit mode (see LayoutHandle below). Keys are stable identifiers persisted in
-    /// TouchLayoutStore, unrelated to any PS4 button name.
-    private func pos(_ key: String, _ x: CGFloat, _ y: CGFloat) -> CGPoint {
-        let o = layout.offset(for: key)
-        return CGPoint(x: x + o.width, y: y + o.height)
-    }
-
     var body: some View {
         GeometryReader { geo in
-            // 1% of the shorter dimension (landscape's height), times a 0.75 shrink --
-            // same base-unit approach and shrink factor touch_controls_layer.cpp settled
-            // on after "way too big" feedback, since this is the same physical control set
-            // at the same physical screen sizes.
-            let u = geo.size.height * 0.01 * 0.75
-            let w = geo.size.width
-            let h = geo.size.height
+            let specs = Dictionary(uniqueKeysWithValues:
+                TouchControlLayoutSpec.all(size: geo.size).map { ($0.key, $0) })
+            let u = geo.size.height / 100
 
             ZStack {
                 if showsControls {
-                Group {
-                    StickView(state: state, axisX: \.leftX, axisY: \.leftY)
-                        .frame(width: u * 34, height: u * 34)
-                        .position(pos("leftStick", u * 20, h - u * 22))
-
-                    DPadView(state: state, radius: u * 13)
-                        .frame(width: u * 26, height: u * 26)
-                        .position(pos("dpad", u * 22, u * 38))
-
-                    StickView(state: state, axisX: \.rightX, axisY: \.rightY)
-                        .frame(width: u * 34, height: u * 34)
-                        .position(pos("rightStick", w - u * 36, h - u * 22))
-
-                    // radius/spread were u*8.5/u*12: diagonal neighbors (Triangle-Square,
-                    // Triangle-Circle, Cross-Square, Cross-Circle) are spread*sqrt(2) apart
-                    // center-to-center, so their hit circles' actual gap was
-                    // 12*1.41 - 2*8.5 = 0 -- exactly touching, not just visually close. Reported
-                    // on-device as bad, too-close hitboxes. u*10/u*17 gives each button a bigger
-                    // hit target and a real ~4u gap between diagonal neighbors
-                    // (17*1.41 - 2*10 ≈ 4). Cluster center moved further left (w - u*34, from
-                    // w - u*30) and the frame widened to match, since the bigger spread pushes
-                    // the rightmost button (Circle) further right again -- its edge now lands at
-                    // w - u*34 + u*17 + u*10 = w - u*7, still safely on-screen.
-                    FaceButtonsView(state: state, radius: u * 10, spread: u * 17)
-                        .frame(width: u * 54, height: u * 54)
-                        .position(pos("faceButtons", w - u * 34, u * 47))
-
-                    ShoulderButton(state: state, bit: UInt32(SHADPS4_PAD_L1), label: "L1",
-                                  width: u * 16, height: u * 8)
-                        .position(pos("L1", u * 10, u * 12))
-                    ShoulderButton(state: state, bit: UInt32(SHADPS4_PAD_L2), label: "L2",
-                                  width: u * 16, height: u * 8, isTrigger: true, triggerAxis: \.l2)
-                        .position(pos("L2", u * 10, u * 2))
-                    ShoulderButton(state: state, bit: UInt32(SHADPS4_PAD_R1), label: "R1",
-                                  width: u * 16, height: u * 8)
-                        .position(pos("R1", w - u * 40, u * 12))
-                    ShoulderButton(state: state, bit: UInt32(SHADPS4_PAD_R2), label: "R2",
-                                  width: u * 16, height: u * 8, isTrigger: true, triggerAxis: \.r2)
-                        .position(pos("R2", w - u * 40, u * 2))
-
                     Group {
-                        SmallButton(state: state, bit: UInt32(SHADPS4_PAD_SHARE), label: "SH",
-                                   radius: u * 4.5)
-                            .position(pos("share", w * 0.40, u * 6))
-                        SmallButton(state: state, bit: UInt32(SHADPS4_PAD_TOUCHPAD), label: "TP",
-                                   radius: u * 4.5)
-                            .position(pos("touchpad", w * 0.50, u * 6))
-                        SmallButton(state: state, bit: UInt32(SHADPS4_PAD_OPTIONS), label: "OPT",
-                                   radius: u * 4.5)
-                            .position(pos("options", w * 0.60, u * 6))
+                        if let spec = specs["touchpad"] {
+                            Group {
+                                if touchpadExpanded {
+                                    TouchpadView(state: state, collapse: { touchpadExpanded = false })
+                                        .frame(width: spec.width, height: spec.height)
+                                } else {
+                                    CollapsedTouchpadButton(state: state, expand: { touchpadExpanded = true })
+                                        .frame(width: spec.width * 0.5, height: u * 7)
+                                }
+                            }
+                            .position(place(spec))
+                        }
+                        if let spec = specs["share"] {
+                            MenuButton(state: state, bit: UInt32(SHADPS4_PAD_SHARE), title: "SHARE")
+                                .frame(width: spec.width, height: spec.height)
+                                .position(place(spec))
+                        }
+                        if let spec = specs["options"] {
+                            MenuButton(state: state, bit: UInt32(SHADPS4_PAD_OPTIONS), title: "OPTIONS")
+                                .frame(width: spec.width, height: spec.height)
+                                .position(place(spec))
+                        }
+                        ForEach(["L1", "L2", "R1", "R2"], id: \.self) { key in
+                            if let spec = specs[key] {
+                                ShoulderButton(state: state, key: key)
+                                    .frame(width: spec.width, height: spec.height)
+                                    .position(place(spec))
+                            }
+                        }
+                        if let spec = specs["leftStick"] {
+                            StickView(state: state, axisX: \.leftX, axisY: \.leftY,
+                                      clickBit: UInt32(SHADPS4_PAD_L3), label: "L")
+                                .frame(width: spec.width, height: spec.height)
+                                .position(place(spec))
+                        }
+                        if let spec = specs["rightStick"] {
+                            StickView(state: state, axisX: \.rightX, axisY: \.rightY,
+                                      clickBit: UInt32(SHADPS4_PAD_R3), label: "R")
+                                .frame(width: spec.width, height: spec.height)
+                                .position(place(spec))
+                        }
+                        if let spec = specs["dpad"] {
+                            DPadView(state: state)
+                                .frame(width: spec.width, height: spec.height)
+                                .position(place(spec))
+                        }
+                        if let spec = specs["faceButtons"] {
+                            FaceButtonsView(state: state, size: spec.width)
+                                .frame(width: spec.width, height: spec.height)
+                                .position(place(spec))
+                        }
                     }
+                    .opacity(controlsOpacity)
+                    .transition(.opacity)
                 }
-                } // if controlsEnabled
 
                 if perf.isEnabled {
                     PerformanceOverlayBadge(perf: perf)
-                        .position(x: w * 0.5, y: u * 26)
+                        .position(x: geo.size.width * 0.5, y: u * 36)
                 }
             }
+            .animation(.easeOut(duration: 0.2), value: showsControls)
+            .animation(.spring(response: 0.3, dampingFraction: 0.85), value: touchpadExpanded)
         }
         .ignoresSafeArea()
+    }
+
+    private func place(_ spec: TouchControlLayoutSpec) -> CGPoint {
+        let offset = layout.offset(for: spec.key)
+        return CGPoint(x: spec.x + offset.width, y: spec.y + offset.height)
+    }
+}
+
+// MARK: - Shared look
+
+/// Dark glass used by every control: translucent fill, a light rim, and a glow while pressed.
+private struct GlassBackground<S: Shape>: View {
+    let shape: S
+    var isPressed = false
+    var tint: Color = .white
+
+    var body: some View {
+        shape
+            .fill(Color.black.opacity(isPressed ? 0.45 : 0.3))
+            .overlay(shape.fill(tint.opacity(isPressed ? 0.28 : 0)))
+            .overlay(
+                shape.stroke(
+                    LinearGradient(colors: [.white.opacity(isPressed ? 0.9 : 0.5), .white.opacity(0.1)],
+                                   startPoint: .top, endPoint: .bottom),
+                    lineWidth: 1.5)
+            )
+            .shadow(color: tint.opacity(isPressed ? 0.6 : 0), radius: 10)
+            .scaleEffect(isPressed ? 0.94 : 1)
+            .animation(.easeOut(duration: 0.08), value: isPressed)
+    }
+}
+
+/// A press that starts the instant a finger lands on the control. simultaneousGesture keeps
+/// neighboring controls' recognizers from negotiating over (and eating) the first touch.
+private struct PressGesture: ViewModifier {
+    @Binding var isPressed: Bool
+    let onChange: (Bool) -> Void
+
+    func body(content: Content) -> some View {
+        content.simultaneousGesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in
+                    guard !isPressed else { return }
+                    isPressed = true
+                    onChange(true)
+                }
+                .onEnded { _ in
+                    isPressed = false
+                    onChange(false)
+                }
+        )
+    }
+}
+
+// MARK: - Touchpad
+
+private struct TouchpadView: View {
+    @ObservedObject var state: TouchPadState
+    let collapse: () -> Void
+
+    @State private var fingers: [CGPoint] = []
+    @State private var clicking = false
+
+    var body: some View {
+        GeometryReader { geo in
+            let shape = RoundedRectangle(cornerRadius: geo.size.height * 0.22, style: .continuous)
+            ZStack {
+                GlassBackground(shape: shape, isPressed: clicking, tint: .cyan)
+                // Subtle dot grid, like the pad's texture.
+                Canvas { context, size in
+                    let step = size.height / 5
+                    var y = step / 2
+                    while y < size.height {
+                        var x = step / 2
+                        while x < size.width {
+                            context.fill(Path(ellipseIn: CGRect(x: x - 0.75, y: y - 0.75, width: 1.5, height: 1.5)),
+                                         with: .color(.white.opacity(0.12)))
+                            x += step
+                        }
+                        y += step
+                    }
+                }
+                .clipShape(shape)
+                .allowsHitTesting(false)
+
+                if fingers.isEmpty {
+                    Text("TOUCHPAD")
+                        .font(.system(size: geo.size.height * 0.16, weight: .semibold, design: .rounded))
+                        .tracking(3)
+                        .foregroundStyle(.white.opacity(0.35))
+                        .allowsHitTesting(false)
+                }
+
+                ForEach(Array(fingers.enumerated()), id: \.offset) { _, point in
+                    Circle()
+                        .fill(RadialGradient(colors: [.cyan.opacity(0.8), .cyan.opacity(0)],
+                                             center: .center, startRadius: 0, endRadius: geo.size.height * 0.22))
+                        .frame(width: geo.size.height * 0.44, height: geo.size.height * 0.44)
+                        .position(x: point.x * geo.size.width, y: point.y * geo.size.height)
+                        .allowsHitTesting(false)
+                }
+
+                TouchpadSurface(
+                    onFingers: { points in
+                        fingers = points
+                        state.touches = points
+                        state.send()
+                    },
+                    onTap: { point in
+                        flashClick()
+                        state.touches = [point]
+                        state.pulse(UInt32(SHADPS4_PAD_TOUCHPAD))
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                            if fingers.isEmpty {
+                                state.touches = []
+                                state.send()
+                            }
+                        }
+                    },
+                    onHold: { holding in
+                        clicking = holding
+                        state.setButton(UInt32(SHADPS4_PAD_TOUCHPAD), pressed: holding)
+                    }
+                )
+                .clipShape(shape)
+
+                Button(action: collapse) {
+                    Image(systemName: "chevron.up")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(.white.opacity(0.7))
+                        .frame(width: 26, height: 16)
+                        .background(Capsule().fill(.black.opacity(0.35)))
+                }
+                .buttonStyle(.plain)
+                .position(x: geo.size.width / 2, y: geo.size.height + 11)
+            }
+        }
+    }
+
+    private func flashClick() {
+        clicking = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { clicking = false }
+    }
+}
+
+/// The touchpad tucked away: a slim bar that still clicks the pad, and expands it on a swipe down.
+private struct CollapsedTouchpadButton: View {
+    @ObservedObject var state: TouchPadState
+    let expand: () -> Void
+    @State private var isPressed = false
+
+    var body: some View {
+        GeometryReader { geo in
+            let shape = Capsule()
+            ZStack {
+                GlassBackground(shape: shape, isPressed: isPressed, tint: .cyan)
+                HStack(spacing: 6) {
+                    Text("TOUCHPAD")
+                        .font(.system(size: geo.size.height * 0.36, weight: .semibold, design: .rounded))
+                        .tracking(2)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: geo.size.height * 0.32, weight: .bold))
+                        .onTapGesture(perform: expand)
+                }
+                .foregroundStyle(.white.opacity(0.75))
+            }
+            .modifier(PressGesture(isPressed: $isPressed) { pressed in
+                state.setButton(UInt32(SHADPS4_PAD_TOUCHPAD), pressed: pressed)
+            })
+            .gesture(DragGesture(minimumDistance: 20).onEnded { value in
+                if value.translation.height > 15 { expand() }
+            })
+        }
+    }
+}
+
+/// UIKit surface for the touchpad: SwiftUI gestures can't follow two individual fingers.
+private struct TouchpadSurface: UIViewRepresentable {
+    let onFingers: ([CGPoint]) -> Void
+    let onTap: (CGPoint) -> Void
+    let onHold: (Bool) -> Void
+
+    func makeUIView(context: Context) -> TouchpadUIView {
+        let view = TouchpadUIView()
+        view.isMultipleTouchEnabled = true
+        view.backgroundColor = .clear
+        return view
+    }
+
+    func updateUIView(_ view: TouchpadUIView, context: Context) {
+        view.onFingers = onFingers
+        view.onTap = onTap
+        view.onHold = onHold
+    }
+}
+
+private final class TouchpadUIView: UIView {
+    var onFingers: (([CGPoint]) -> Void)?
+    var onTap: ((CGPoint) -> Void)?
+    var onHold: ((Bool) -> Void)?
+
+    private var active: [UITouch] = []
+    private var firstTouchStart: CFTimeInterval = 0
+    private var firstTouchOrigin: CGPoint = .zero
+    private var moved = false
+    private var holding = false
+    private var maxFingers = 0
+    private var holdTimer: Timer?
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        for touch in touches where active.count < 2 {
+            active.append(touch)
+        }
+        maxFingers = max(maxFingers, active.count)
+        if active.count == 1, let first = active.first {
+            firstTouchStart = CACurrentMediaTime()
+            firstTouchOrigin = first.location(in: self)
+            moved = false
+            holdTimer?.invalidate()
+            // Resting a finger without moving presses the pad down, like pushing on a real one.
+            holdTimer = Timer.scheduledTimer(withTimeInterval: 0.45, repeats: false) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self, !self.moved, self.active.count == 1 else { return }
+                    self.holding = true
+                    self.onHold?(true)
+                }
+            }
+        } else {
+            holdTimer?.invalidate()
+        }
+        report()
+    }
+
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
+        if let first = active.first {
+            let p = first.location(in: self)
+            if hypot(p.x - firstTouchOrigin.x, p.y - firstTouchOrigin.y) > 8 {
+                moved = true
+                if !holding { holdTimer?.invalidate() }
+            }
+        }
+        report()
+    }
+
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        finish(touches, cancelled: false)
+    }
+
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+        finish(touches, cancelled: true)
+    }
+
+    private func finish(_ touches: Set<UITouch>, cancelled: Bool) {
+        let lastPoint = active.first.map { normalized($0.location(in: self)) }
+        active.removeAll { touches.contains($0) }
+        guard active.isEmpty else {
+            report()
+            return
+        }
+        holdTimer?.invalidate()
+        let quick = CACurrentMediaTime() - firstTouchStart < 0.25
+        if holding {
+            holding = false
+            onHold?(false)
+            report()
+        } else if !cancelled && !moved && quick && maxFingers == 1, let lastPoint {
+            onFingers?([])
+            onTap?(lastPoint)
+        } else {
+            report()
+        }
+        maxFingers = 0
+    }
+
+    private func report() {
+        onFingers?(active.map { normalized($0.location(in: self)) })
+    }
+
+    private func normalized(_ p: CGPoint) -> CGPoint {
+        CGPoint(x: min(max(p.x / max(bounds.width, 1), 0), 1),
+                y: min(max(p.y / max(bounds.height, 1), 0), 1))
     }
 }
 
@@ -314,46 +655,73 @@ private struct StickView: View {
     @ObservedObject var state: TouchPadState
     let axisX: ReferenceWritableKeyPath<TouchPadState, Int>
     let axisY: ReferenceWritableKeyPath<TouchPadState, Int>
+    let clickBit: UInt32
+    let label: String
 
     @State private var thumbOffset: CGSize = .zero
     @State private var isDragging = false
+    @State private var touchStart: Date?
+    @State private var maxTravel: CGFloat = 0
 
     var body: some View {
         GeometryReader { geo in
             let radius = min(geo.size.width, geo.size.height) / 2
+            let travel = radius * 0.62
+            let direction = atan2(thumbOffset.height, thumbOffset.width)
+            let strength = min(hypot(thumbOffset.width, thumbOffset.height) / travel, 1)
             ZStack {
+                GlassBackground(shape: Circle(), isPressed: false)
+                // Direction highlight along the rim.
                 Circle()
-                    .fill(Color.white.opacity(0.15))
+                    .trim(from: 0, to: 0.18)
+                    .stroke(Color.cyan.opacity(0.8 * strength), style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                    .rotationEffect(.radians(Double(direction) - .pi * 32 / 180))
+                    .padding(2)
                 Circle()
-                    .stroke(Color.white.opacity(0.4), lineWidth: 2)
-                Circle()
-                    .fill(Color.white.opacity(isDragging ? 0.55 : 0.3))
-                    .frame(width: radius * 0.9, height: radius * 0.9)
+                    .fill(
+                        RadialGradient(colors: [.white.opacity(isDragging ? 0.7 : 0.45), .white.opacity(isDragging ? 0.35 : 0.18)],
+                                       center: .topLeading, startRadius: 0, endRadius: radius * 0.6)
+                    )
+                    .overlay(Circle().stroke(.white.opacity(0.6), lineWidth: 1))
+                    .overlay(
+                        Text(label)
+                            .font(.system(size: radius * 0.22, weight: .bold, design: .rounded))
+                            .foregroundStyle(.black.opacity(0.35))
+                    )
+                    .frame(width: radius * 0.86, height: radius * 0.86)
+                    .shadow(color: .black.opacity(0.4), radius: 6, y: 3)
                     .offset(thumbOffset)
             }
             .contentShape(Circle())
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { value in
-                        isDragging = true
-                        let dx = value.translation.width
-                        let dy = value.translation.height
-                        let dist = sqrt(dx * dx + dy * dy)
-                        let clamped: CGSize
-                        if dist > radius && dist > 0 {
-                            let scale = radius / dist
-                            clamped = CGSize(width: dx * scale, height: dy * scale)
-                        } else {
-                            clamped = CGSize(width: dx, height: dy)
+                        if touchStart == nil {
+                            touchStart = Date()
+                            maxTravel = 0
                         }
-                        thumbOffset = clamped
-                        state[keyPath: axisX] = axisValue(clamped.width, radius: radius)
-                        state[keyPath: axisY] = axisValue(clamped.height, radius: radius)
+                        isDragging = true
+                        // Measured from the stick's center, so the thumb jumps under the finger.
+                        let dx = value.location.x - radius
+                        let dy = value.location.y - radius
+                        maxTravel = max(maxTravel, hypot(value.translation.width, value.translation.height))
+                        let dist = hypot(dx, dy)
+                        let scale = dist > travel ? travel / dist : 1
+                        thumbOffset = CGSize(width: dx * scale, height: dy * scale)
+                        state[keyPath: axisX] = axisValue(thumbOffset.width, travel: travel)
+                        state[keyPath: axisY] = axisValue(thumbOffset.height, travel: travel)
                         state.send()
                     }
                     .onEnded { _ in
+                        // A quick tap without dragging clicks the stick (L3/R3).
+                        if let touchStart, Date().timeIntervalSince(touchStart) < 0.2, maxTravel < 6 {
+                            state.pulse(clickBit)
+                        }
+                        touchStart = nil
                         isDragging = false
-                        thumbOffset = .zero
+                        withAnimation(.spring(response: 0.18, dampingFraction: 0.6)) {
+                            thumbOffset = .zero
+                        }
                         state[keyPath: axisX] = 128
                         state[keyPath: axisY] = 128
                         state.send()
@@ -362,12 +730,10 @@ private struct StickView: View {
         }
     }
 
-    // Maps a clamped [-radius, radius] offset to a 0-255 axis value, 128 = center --
-    // matches Input::GetAxis's own mapping (see touch_controls_layer.cpp's prior usage of
-    // it), just computed directly here since that helper isn't exposed across the C API.
-    private func axisValue(_ offset: CGFloat, radius: CGFloat) -> Int {
-        guard radius > 0 else { return 128 }
-        let normalized = max(-1.0, min(1.0, offset / radius))
+    /// Maps an offset in [-travel, travel] to a 0-255 axis value, 128 = center.
+    private func axisValue(_ offset: CGFloat, travel: CGFloat) -> Int {
+        guard travel > 0 else { return 128 }
+        let normalized = max(-1.0, min(1.0, offset / travel))
         return Int((normalized * 127.0).rounded()) + 128
     }
 }
@@ -376,26 +742,24 @@ private struct StickView: View {
 
 private struct DPadView: View {
     @ObservedObject var state: TouchPadState
-    let radius: CGFloat
-
     @State private var pressedBits: UInt32 = 0
 
     var body: some View {
         GeometryReader { geo in
-            let center = CGPoint(x: geo.size.width / 2, y: geo.size.height / 2)
+            let size = min(geo.size.width, geo.size.height)
+            let arm = size * 0.36
             ZStack {
-                Circle().fill(Color.white.opacity(0.15))
-                Circle().stroke(Color.white.opacity(0.4), lineWidth: 2)
-                dpadArrow(rotation: 0, active: pressedBits & UInt32(SHADPS4_PAD_UP) != 0)
-                dpadArrow(rotation: 180, active: pressedBits & UInt32(SHADPS4_PAD_DOWN) != 0)
-                dpadArrow(rotation: 270, active: pressedBits & UInt32(SHADPS4_PAD_LEFT) != 0)
-                dpadArrow(rotation: 90, active: pressedBits & UInt32(SHADPS4_PAD_RIGHT) != 0)
+                arrow(UInt32(SHADPS4_PAD_UP), rotation: 0, size: size, arm: arm)
+                arrow(UInt32(SHADPS4_PAD_RIGHT), rotation: 90, size: size, arm: arm)
+                arrow(UInt32(SHADPS4_PAD_DOWN), rotation: 180, size: size, arm: arm)
+                arrow(UInt32(SHADPS4_PAD_LEFT), rotation: 270, size: size, arm: arm)
             }
+            .frame(width: size, height: size)
             .contentShape(Circle())
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { value in
-                        update(point: value.location, center: center)
+                        update(point: value.location, center: CGPoint(x: size / 2, y: size / 2))
                     }
                     .onEnded { _ in
                         apply(0)
@@ -404,42 +768,71 @@ private struct DPadView: View {
         }
     }
 
-    private func dpadArrow(rotation: Double, active: Bool) -> some View {
-        Image(systemName: "arrowtriangle.up.fill")
-            .font(.system(size: 14))
-            .foregroundColor(.white.opacity(active ? 0.9 : 0.5))
-            .offset(y: -radius * 0.55)
-            .rotationEffect(.degrees(rotation))
+    private func arrow(_ bit: UInt32, rotation: Double, size: CGFloat, arm: CGFloat) -> some View {
+        let active = pressedBits & bit != 0
+        let shape = DPadArmShape()
+        return ZStack {
+            GlassBackground(shape: shape, isPressed: active)
+            Image(systemName: "arrowtriangle.up.fill")
+                .font(.system(size: arm * 0.3))
+                .foregroundStyle(.white.opacity(active ? 0.95 : 0.6))
+                .offset(y: -arm * 0.12)
+        }
+        .frame(width: arm * 0.95, height: arm)
+        .offset(y: -(size / 2 - arm / 2))
+        .rotationEffect(.degrees(rotation))
     }
 
-    // Angle-based 8-way direction, same approach touch_controls_layer.cpp used: lets a
-    // touch near a corner register as a diagonal (two bits at once) like a real d-pad's
-    // corner does, rather than 4 separate quadrant rectangles.
+    // 8-way, by angle, so a touch near a corner presses both neighbors like a real d-pad.
     private func update(point: CGPoint, center: CGPoint) {
         let dx = point.x - center.x
         let dy = point.y - center.y
+        guard hypot(dx, dy) > 6 else { return }
         let degrees = atan2(-dy, dx) * 180 / .pi
         let normalized = (degrees + 360).truncatingRemainder(dividingBy: 360)
-        var bits: UInt32 = 0
+        let up = UInt32(SHADPS4_PAD_UP), down = UInt32(SHADPS4_PAD_DOWN)
+        let left = UInt32(SHADPS4_PAD_LEFT), right = UInt32(SHADPS4_PAD_RIGHT)
+        let bits: UInt32
         switch normalized {
-        case 337.5..., ..<22.5: bits = UInt32(SHADPS4_PAD_RIGHT)
-        case 22.5..<67.5: bits = UInt32(SHADPS4_PAD_UP) | UInt32(SHADPS4_PAD_RIGHT)
-        case 67.5..<112.5: bits = UInt32(SHADPS4_PAD_UP)
-        case 112.5..<157.5: bits = UInt32(SHADPS4_PAD_UP) | UInt32(SHADPS4_PAD_LEFT)
-        case 157.5..<202.5: bits = UInt32(SHADPS4_PAD_LEFT)
-        case 202.5..<247.5: bits = UInt32(SHADPS4_PAD_DOWN) | UInt32(SHADPS4_PAD_LEFT)
-        case 247.5..<292.5: bits = UInt32(SHADPS4_PAD_DOWN)
-        default: bits = UInt32(SHADPS4_PAD_DOWN) | UInt32(SHADPS4_PAD_RIGHT)
+        case 337.5..., ..<22.5: bits = right
+        case 22.5..<67.5: bits = up | right
+        case 67.5..<112.5: bits = up
+        case 112.5..<157.5: bits = up | left
+        case 157.5..<202.5: bits = left
+        case 202.5..<247.5: bits = down | left
+        case 247.5..<292.5: bits = down
+        default: bits = down | right
         }
         apply(bits)
     }
 
     private func apply(_ bits: UInt32) {
-        let dpadMask = UInt32(SHADPS4_PAD_UP) | UInt32(SHADPS4_PAD_DOWN) | UInt32(SHADPS4_PAD_LEFT)
+        guard bits != pressedBits else { return }
+        let mask = UInt32(SHADPS4_PAD_UP) | UInt32(SHADPS4_PAD_DOWN) | UInt32(SHADPS4_PAD_LEFT)
             | UInt32(SHADPS4_PAD_RIGHT)
-        state.buttons = (state.buttons & ~dpadMask) | bits
+        if bits & ~pressedBits != 0 {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred(intensity: 0.6)
+        }
+        state.buttons = (state.buttons & ~mask) | bits
         pressedBits = bits
         state.send()
+    }
+}
+
+/// One arm of the d-pad cross: square inner end, pointed outer end.
+private struct DPadArmShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        let r = min(rect.width, rect.height) * 0.18
+        var path = Path()
+        path.move(to: CGPoint(x: rect.minX, y: rect.minY + r))
+        path.addQuadCurve(to: CGPoint(x: rect.minX + r, y: rect.minY), control: CGPoint(x: rect.minX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX - r, y: rect.minY))
+        path.addQuadCurve(to: CGPoint(x: rect.maxX, y: rect.minY + r), control: CGPoint(x: rect.maxX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - rect.height * 0.28))
+        path.addLine(to: CGPoint(x: rect.midX, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY - rect.height * 0.28))
+        path.closeSubpath()
+        return path
     }
 }
 
@@ -447,69 +840,47 @@ private struct DPadView: View {
 
 private struct FaceButtonsView: View {
     @ObservedObject var state: TouchPadState
-    let radius: CGFloat
-    let spread: CGFloat
+    let size: CGFloat
 
     var body: some View {
+        let radius = size * 0.185
+        let spread = size * 0.32
         ZStack {
-            FaceButton(state: state, bit: UInt32(SHADPS4_PAD_TRIANGLE), radius: radius) {
-                Image(systemName: "triangle").font(.system(size: radius * 0.7))
-            }
-            .offset(y: -spread)
-            FaceButton(state: state, bit: UInt32(SHADPS4_PAD_CROSS), radius: radius) {
-                Image(systemName: "xmark").font(.system(size: radius * 0.6))
-            }
-            .offset(y: spread)
-            FaceButton(state: state, bit: UInt32(SHADPS4_PAD_SQUARE), radius: radius) {
-                Image(systemName: "square").font(.system(size: radius * 0.6))
-            }
-            .offset(x: -spread)
-            FaceButton(state: state, bit: UInt32(SHADPS4_PAD_CIRCLE), radius: radius) {
-                Image(systemName: "circle").font(.system(size: radius * 0.6))
-            }
-            .offset(x: spread)
+            FaceButton(state: state, bit: UInt32(SHADPS4_PAD_TRIANGLE), radius: radius,
+                       symbol: "triangle", color: Color(red: 0.25, green: 0.85, blue: 0.68))
+                .offset(y: -spread)
+            FaceButton(state: state, bit: UInt32(SHADPS4_PAD_CROSS), radius: radius,
+                       symbol: "xmark", color: Color(red: 0.48, green: 0.66, blue: 1.0))
+                .offset(y: spread)
+            FaceButton(state: state, bit: UInt32(SHADPS4_PAD_SQUARE), radius: radius,
+                       symbol: "square", color: Color(red: 0.97, green: 0.56, blue: 0.85))
+                .offset(x: -spread)
+            FaceButton(state: state, bit: UInt32(SHADPS4_PAD_CIRCLE), radius: radius,
+                       symbol: "circle", color: Color(red: 1.0, green: 0.42, blue: 0.42))
+                .offset(x: spread)
         }
     }
 }
 
-private struct FaceButton<Glyph: View>: View {
+private struct FaceButton: View {
     @ObservedObject var state: TouchPadState
     let bit: UInt32
     let radius: CGFloat
-    @ViewBuilder let glyph: () -> Glyph
+    let symbol: String
+    let color: Color
 
     @State private var isPressed = false
 
     var body: some View {
         ZStack {
-            Circle().fill(Color.white.opacity(isPressed ? 0.5 : 0.15))
-            Circle().stroke(Color.white.opacity(0.4), lineWidth: 1.5)
-            glyph().foregroundColor(.white.opacity(0.85))
+            GlassBackground(shape: Circle(), isPressed: isPressed, tint: color)
+            Image(systemName: symbol)
+                .font(.system(size: radius * 0.75, weight: .semibold))
+                .foregroundStyle(color.opacity(isPressed ? 1 : 0.85))
         }
         .frame(width: radius * 2, height: radius * 2)
         .contentShape(Circle())
-        // simultaneousGesture, not gesture: the four face buttons are close enough that their
-        // *bounding frames* (not their circular contentShape/hit area, which do have a real
-        // gap -- see FaceButtonsView's own comment) overlap at the corners. SwiftUI's plain
-        // .gesture() sets each sibling's DragGesture up as UIKit-exclusive, which forces a
-        // recognizer-negotiation pass to pick a winner whenever frames overlap like this --
-        // and that negotiation was eating the first touch, only resolving (and registering the
-        // press) once the finger moved enough to disambiguate. Reported on-device as buttons
-        // only registering on "press then drag out of it". simultaneousGesture opts this
-        // recognizer out of that exclusivity entirely, so it starts the instant its own
-        // contentShape is hit, with no negotiation against its siblings.
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { _ in
-                    guard !isPressed else { return }
-                    isPressed = true
-                    state.setButton(bit, pressed: true)
-                }
-                .onEnded { _ in
-                    isPressed = false
-                    state.setButton(bit, pressed: false)
-                }
-        )
+        .modifier(PressGesture(isPressed: $isPressed) { state.setButton(bit, pressed: $0) })
     }
 }
 
@@ -517,78 +888,67 @@ private struct FaceButton<Glyph: View>: View {
 
 private struct ShoulderButton: View {
     @ObservedObject var state: TouchPadState
-    let bit: UInt32
-    let label: String
-    let width: CGFloat
-    let height: CGFloat
-    var isTrigger: Bool = false
-    var triggerAxis: ReferenceWritableKeyPath<TouchPadState, Int>? = nil
+    let key: String
 
     @State private var isPressed = false
 
-    var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 6)
-                .fill(Color.white.opacity(isPressed ? 0.5 : 0.15))
-            RoundedRectangle(cornerRadius: 6)
-                .stroke(Color.white.opacity(0.4), lineWidth: 1.5)
-            Text(label)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundColor(.white.opacity(0.85))
+    private var bit: UInt32 {
+        switch key {
+        case "L1": UInt32(SHADPS4_PAD_L1)
+        case "L2": UInt32(SHADPS4_PAD_L2)
+        case "R1": UInt32(SHADPS4_PAD_R1)
+        default: UInt32(SHADPS4_PAD_R2)
         }
-        .frame(width: width, height: height)
-        .contentShape(Rectangle())
-        .gesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { _ in
-                    guard !isPressed else { return }
-                    isPressed = true
-                    state.setButton(bit, pressed: true)
-                    if let triggerAxis { state[keyPath: triggerAxis] = 255 }
-                    state.send()
-                }
-                .onEnded { _ in
-                    isPressed = false
-                    state.setButton(bit, pressed: false)
-                    if let triggerAxis { state[keyPath: triggerAxis] = 0 }
-                    state.send()
-                }
-        )
+    }
+
+    private var triggerAxis: ReferenceWritableKeyPath<TouchPadState, Int>? {
+        switch key {
+        case "L2": \.l2
+        case "R2": \.r2
+        default: nil
+        }
+    }
+
+    var body: some View {
+        GeometryReader { geo in
+            ZStack {
+                GlassBackground(shape: Capsule(), isPressed: isPressed)
+                Text(key)
+                    .font(.system(size: geo.size.height * 0.45, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.85))
+            }
+            .contentShape(Capsule())
+            .modifier(PressGesture(isPressed: $isPressed) { pressed in
+                if let triggerAxis { state[keyPath: triggerAxis] = pressed ? 255 : 0 }
+                state.setButton(bit, pressed: pressed)
+            })
+        }
     }
 }
 
-// MARK: - Small buttons (Options / TouchPad)
+// MARK: - Share / Options
 
-private struct SmallButton: View {
+private struct MenuButton: View {
     @ObservedObject var state: TouchPadState
     let bit: UInt32
-    let label: String
-    let radius: CGFloat
+    let title: String
 
     @State private var isPressed = false
 
     var body: some View {
-        ZStack {
-            Circle().fill(Color.white.opacity(isPressed ? 0.5 : 0.15))
-            Circle().stroke(Color.white.opacity(0.4), lineWidth: 1.5)
-            Text(label)
-                .font(.system(size: 9, weight: .semibold))
-                .foregroundColor(.white.opacity(0.85))
+        GeometryReader { geo in
+            ZStack {
+                GlassBackground(shape: Capsule(), isPressed: isPressed)
+                Text(title)
+                    .font(.system(size: geo.size.height * 0.32, weight: .bold, design: .rounded))
+                    .minimumScaleFactor(0.5)
+                    .lineLimit(1)
+                    .padding(.horizontal, 4)
+                    .foregroundStyle(.white.opacity(0.8))
+            }
+            .contentShape(Capsule())
+            .modifier(PressGesture(isPressed: $isPressed) { state.setButton(bit, pressed: $0) })
         }
-        .frame(width: radius * 2, height: radius * 2)
-        .contentShape(Circle())
-        .gesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { _ in
-                    guard !isPressed else { return }
-                    isPressed = true
-                    state.setButton(bit, pressed: true)
-                }
-                .onEnded { _ in
-                    isPressed = false
-                    state.setButton(bit, pressed: false)
-                }
-        )
     }
 }
 

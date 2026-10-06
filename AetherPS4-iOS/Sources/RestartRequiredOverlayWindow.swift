@@ -60,7 +60,7 @@ private struct RestartRequiredView: View {
                 .font(.title2.bold())
                 .foregroundColor(.white)
 
-            Text("\(gameName) needs to restart to continue -- this is normal, real PS4 hardware does a full reboot here too.\n\nTap Restart App below, then reopen AetherPS4 and launch \(gameName) again.")
+            Text("\(gameName) needs to restart to continue -- this is normal, real PS4 hardware does a full reboot here too.\n\nTap Restart App below, then reopen AetherPatch and launch \(gameName) again.")
                 .font(.body)
                 .foregroundColor(.white.opacity(0.8))
                 .multilineTextAlignment(.center)
