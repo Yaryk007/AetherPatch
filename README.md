@@ -103,4 +103,4 @@ per-component licensing).
 
 ## Notice
 
-Because Leviidev stopped updating aetherps4 focusing on hus, I will make my own updates and i do them diffrently
+Because Leviidev stopped updating aetherps4 focusing on husk, I will make my own updates and i do them diffrently
