@@ -57,6 +57,12 @@ cmake --build "$FEX_BUILD" --parallel "$JOBS" --target \
     tiny-json fmt xxhash cephes_128bit softfloat_3e rpmalloc
 
 echo "==> [2/3] shadPS4 core (libshadps4_ios.a) for iOS"
+# Native (macOS) helper the ImGui font embedding runs at build time.
+HOST_TOOLS="$ROOT/runtime/build/host-tools"
+mkdir -p "$HOST_TOOLS"
+xcrun -sdk macosx clang++ -std=c++17 -O2 \
+    "$ROOT/externals/dear_imgui/misc/fonts/binary_to_compressed_c.cpp" \
+    -o "$HOST_TOOLS/binary_to_compressed_c"
 cmake -S "$ROOT" -B "$CORE_BUILD" "${IOS_CMAKE_ARGS[@]}" \
     -DENABLE_SHADPS4_IOS_LIB=ON \
     -DENABLE_FEX_GUEST_CPU=ON \
@@ -64,7 +70,9 @@ cmake -S "$ROOT" -B "$CORE_BUILD" "${IOS_CMAKE_ARGS[@]}" \
     -DFEXCORE_GUEST_CPU_BUILD_DIR="$FEX_BUILD" \
     -DENABLE_DISCORD_RPC=OFF \
     -DENABLE_UPDATER=OFF \
-    -DENABLE_TESTS=OFF
+    -DENABLE_TESTS=OFF \
+    -DIMGUI_FONT_EMBED_EXECUTABLE="$HOST_TOOLS/binary_to_compressed_c" \
+    -DALLOWS_ONESHOT_TIMERS_WITH_TIMEOUT_ZERO_EXITCODE=1
 cmake --build "$CORE_BUILD" --target shadps4_ios --parallel "$JOBS"
 
 # The Xcode project links each static library by its path inside runtime/build/shadps4-ios.
