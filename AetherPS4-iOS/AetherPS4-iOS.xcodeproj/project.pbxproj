@@ -51,6 +51,7 @@
 		7AAAF29F41E3DD69ED3684A6 /* libz.a in Frameworks */ = {isa = PBXBuildFile; fileRef = A399B17040F8452BCC6733B0 /* libz.a */; };
 		7D92A328E314AACE655EC771 /* TouchLayoutStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8340073449D7B311E35127E4 /* TouchLayoutStore.swift */; };
 		A1E5C0DE0000000000000001 /* HomeMenuView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1E5C0DE0000000000000002 /* HomeMenuView.swift */; };
+		A1E5C0DE0000000000000003 /* PS4MenuView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1E5C0DE0000000000000004 /* PS4MenuView.swift */; };
 		7DED3526731EB20BB90647B8 /* GameCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50804515E4537DA4766EAC99 /* GameCardView.swift */; };
 		7FF99A4218502E29F13EB3B9 /* libDear_ImGui.a in Frameworks */ = {isa = PBXBuildFile; fileRef = FD0901AEF171D106F62C0907 /* libDear_ImGui.a */; };
 		8085A629949B0E32A48331A7 /* libglslang.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 53261E20303234E144B72CB2 /* libglslang.a */; };
@@ -151,6 +152,7 @@
 		45ED9983CF60E773F982A993 /* TouchControlsLayoutEditorView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = TouchControlsLayoutEditorView.swift; path = Views/TouchControlsLayoutEditorView.swift; sourceTree = "<group>"; };
 		4F514B4F818A2E707F7395DD /* libopenal.a */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = archive.ar; name = libopenal.a; path = "../runtime/build/shadps4-ios/externals/openal-soft/libopenal.a"; sourceTree = "<group>"; };
 		A1E5C0DE0000000000000002 /* HomeMenuView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HomeMenuView.swift; path = Views/HomeMenuView.swift; sourceTree = "<group>"; };
+		A1E5C0DE0000000000000004 /* PS4MenuView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = PS4MenuView.swift; path = Views/PS4MenuView.swift; sourceTree = "<group>"; };
 		50804515E4537DA4766EAC99 /* GameCardView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = GameCardView.swift; path = Views/GameCardView.swift; sourceTree = "<group>"; };
 		510388CF74648923DA0A5CC6 /* libhwinfo_cpu.a */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = archive.ar; name = libhwinfo_cpu.a; path = "../runtime/build/shadps4-ios/externals/hwinfo/src/libhwinfo_cpu.a"; sourceTree = "<group>"; };
 		53261E20303234E144B72CB2 /* libglslang.a */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = archive.ar; name = libglslang.a; path = "../runtime/build/shadps4-ios/externals/glslang/glslang/libglslang.a"; sourceTree = "<group>"; };
@@ -324,6 +326,7 @@
 				1CF69ADDFA7A500A568DEFF9 /* SetupCheckView.swift */,
 				136453DD4F3749B98EBF0BA6 /* GameDetailView.swift */,
 				50804515E4537DA4766EAC99 /* GameCardView.swift */,
+				A1E5C0DE0000000000000004 /* PS4MenuView.swift */,
 				A1E5C0DE0000000000000002 /* HomeMenuView.swift */,
 				51A56855FFF5DA2D48453D01 /* GameStatusView.swift */,
 				A0AAC120490E4B00BED4BF25 /* ExternalStorageStore.swift */,
@@ -570,6 +573,7 @@
 				41BD264C74DD09ECD16ABBC2 /* SetupCheckView.swift in Sources */,
 				489E3B8D3922E772DB7A2F57 /* GameDetailView.swift in Sources */,
 				7DED3526731EB20BB90647B8 /* GameCardView.swift in Sources */,
+				A1E5C0DE0000000000000003 /* PS4MenuView.swift in Sources */,
 				A1E5C0DE0000000000000001 /* HomeMenuView.swift in Sources */,
 				18783C9AB5C0129697BEBDCF /* LibraryView.swift in Sources */,
 				BCE1C9134646D8FB2522EF0E /* TouchControlsLayoutEditorView.swift in Sources */,

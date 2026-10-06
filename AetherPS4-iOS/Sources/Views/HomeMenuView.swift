@@ -22,6 +22,8 @@ struct HomeMenuView: View {
     @State private var functionIndex = 0
     @State private var sheet: HomeSheet?
     @State private var infoGame: Game?
+    @State private var ps4Menu: PS4MenuRoot?
+    @State private var pendingDelete: Game?
     @State private var isImporterPresented = false
     @State private var toast: String?
     @State private var toastTask: Task<Void, Never>?
@@ -31,7 +33,10 @@ struct HomeMenuView: View {
     private enum FocusArea {
         case content
         case functions
+        case shelf
     }
+
+    @State private var shelfIndex = 0
 
     var body: some View {
         ZStack {
@@ -42,8 +47,11 @@ struct HomeMenuView: View {
                 let m = HomeMetrics(size: geo.size)
                 VStack(alignment: .leading, spacing: 0) {
                     topBar(m)
-                    functionRow(m)
-                        .padding(.top, m.unit * 0.05)
+                    if focusArea != .shelf {
+                        functionRow(m)
+                            .padding(.top, m.unit * 0.05)
+                            .transition(.move(edge: .top).combined(with: .opacity))
+                    }
                     Spacer(minLength: m.unit * 0.04)
                     contentRow(m)
                         .offset(y: focusArea == .functions ? m.unit * 0.08 : 0)
@@ -52,6 +60,11 @@ struct HomeMenuView: View {
                         .padding(.horizontal, m.margin)
                         .padding(.top, m.unit * 0.04)
                         .opacity(focusArea == .functions ? 0 : 1)
+                    if focusArea == .shelf, case .game(let game) = focusedItem {
+                        infoShelf(game, m)
+                            .padding(.top, m.unit * 0.05)
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
                     Spacer(minLength: 0)
                     buttonHints(m)
                 }
@@ -102,6 +115,25 @@ struct HomeMenuView: View {
             }
             .environment(library)
             .environment(emulator)
+        }
+        .alert("Delete \(pendingDelete?.name ?? "")?", isPresented: Binding(
+            get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } }
+        )) {
+            Button("Delete", role: .destructive) {
+                if let game = pendingDelete {
+                    library.removeGame(game)
+                }
+                pendingDelete = nil
+                focusArea = .content
+            }
+            Button("Cancel", role: .cancel) { pendingDelete = nil }
+        } message: {
+            Text("This removes the installed copy from the app.")
+        }
+        .fullScreenCover(item: $ps4Menu) { root in
+            PS4MenuView(root: root, onClose: { ps4Menu = nil })
+                .environment(library)
+                .environment(emulator)
         }
         .fileImporter(
             isPresented: $isImporterPresented,
@@ -164,11 +196,11 @@ struct HomeMenuView: View {
 
     private func topBar(_ m: HomeMetrics) -> some View {
         HStack(spacing: 10) {
-            avatar(size: m.unit * 0.075)
-            Text(profile.username)
-                .font(.system(size: m.unit * 0.042, weight: .regular))
-                .lineLimit(1)
             Spacer()
+            avatar(size: m.unit * 0.07)
+            Text(profile.username)
+                .font(.system(size: m.unit * 0.038, weight: .light))
+                .lineLimit(1)
             if input.isConnected {
                 Image(systemName: "gamecontroller.fill")
                     .font(.system(size: m.unit * 0.038))
@@ -318,7 +350,7 @@ struct HomeMenuView: View {
                 Text("Library")
                     .font(.system(size: m.unit * 0.062, weight: .light))
                 HStack(spacing: m.unit * 0.04) {
-                    HomeActionButton(title: "Open", size: m.unit) { sheet = .library }
+                    HomeActionButton(title: "Open", size: m.unit) { ps4Menu = .library }
                     Text(library.games.isEmpty
                          ? "Add a .pkg to get started"
                          : "\(library.games.count) installed")
@@ -335,6 +367,84 @@ struct HomeMenuView: View {
             return "Close Application"
         }
         return "Start"
+    }
+
+    // MARK: - Info shelf (press down on a game, like the PS4's content area)
+
+    private enum ShelfCard: CaseIterable {
+        case information, playTime, version, delete
+    }
+
+    private func infoShelf(_ game: Game, _ m: HomeMetrics) -> some View {
+        HStack(spacing: m.unit * 0.025) {
+            ForEach(Array(ShelfCard.allCases.enumerated()), id: \.offset) { index, card in
+                let focused = focusArea == .shelf && index == shelfIndex
+                VStack(alignment: .leading, spacing: m.unit * 0.015) {
+                    Image(systemName: shelfSymbol(card))
+                        .font(.system(size: m.unit * 0.045, weight: .light))
+                    Spacer(minLength: 0)
+                    Text(shelfTitle(card))
+                        .font(.system(size: m.unit * 0.03, weight: .regular))
+                    Text(shelfValue(card, game))
+                        .font(.system(size: m.unit * 0.026, weight: .light))
+                        .foregroundStyle(.white.opacity(0.7))
+                        .lineLimit(1)
+                }
+                .foregroundStyle(card == .delete ? Color(red: 1, green: 0.6, blue: 0.6) : .white)
+                .padding(m.unit * 0.025)
+                .frame(width: m.unit * 0.3, height: m.unit * 0.2, alignment: .topLeading)
+                .background(RoundedRectangle(cornerRadius: 3).fill(.black.opacity(focused ? 0.5 : 0.32)))
+                .overlay(RoundedRectangle(cornerRadius: 3)
+                    .strokeBorder(.white.opacity(focused ? 0.9 : 0.12), lineWidth: focused ? 2 : 0.5))
+                .shadow(color: .white.opacity(focused ? 0.3 : 0), radius: 8)
+                .scaleEffect(focused ? 1.04 : 1)
+                .onTapGesture {
+                    focusArea = .shelf
+                    shelfIndex = index
+                    activateShelf(game)
+                }
+            }
+        }
+        .padding(.horizontal, m.margin)
+        .animation(.easeOut(duration: 0.15), value: shelfIndex)
+    }
+
+    private func shelfSymbol(_ card: ShelfCard) -> String {
+        switch card {
+        case .information: "info.circle"
+        case .playTime: "clock"
+        case .version: "tag"
+        case .delete: "trash"
+        }
+    }
+
+    private func shelfTitle(_ card: ShelfCard) -> String {
+        switch card {
+        case .information: "Information"
+        case .playTime: "Play Time"
+        case .version: "Version"
+        case .delete: "Delete"
+        }
+    }
+
+    private func shelfValue(_ card: ShelfCard, _ game: Game) -> String {
+        switch card {
+        case .information: game.titleId ?? ""
+        case .playTime: PlayTimeStore.formatted(forTitleId: game.titleId) ?? "Not played yet"
+        case .version: game.appVersion.map { "v\($0)" } ?? "Unknown"
+        case .delete: "Remove from library"
+        }
+    }
+
+    private func activateShelf(_ game: Game) {
+        switch ShelfCard.allCases[shelfIndex] {
+        case .information, .playTime, .version:
+            playSound(.confirm)
+            infoGame = game
+        case .delete:
+            playSound(.confirm)
+            pendingDelete = game
+        }
     }
 
     // MARK: - Button hints
@@ -412,18 +522,18 @@ struct HomeMenuView: View {
             start(game)
         case .library, .none:
             playSound(.confirm)
-            sheet = .library
+            ps4Menu = .library
         }
     }
 
     private func activateFunction() {
         playSound(.confirm)
         switch FunctionItem.allCases[functionIndex] {
-        case .library: sheet = .library
+        case .library: ps4Menu = .library
         case .addGame: isImporterPresented = true
         case .gameStatus: sheet = .gameStatus
-        case .profile: sheet = .profile
-        case .settings: sheet = .settings
+        case .profile: ps4Menu = .profile
+        case .settings: ps4Menu = .settings
         }
     }
 
@@ -456,7 +566,7 @@ struct HomeMenuView: View {
     // MARK: - Controller
 
     private func handle(_ command: HomeControllerInput.Command) {
-        guard !emulator.isRunning else { return }
+        guard !emulator.isRunning, ps4Menu == nil else { return }
         if sheet != nil || infoGame != nil {
             if command == .back {
                 sheet = nil
@@ -465,7 +575,7 @@ struct HomeMenuView: View {
             }
             return
         }
-        guard !isImporterPresented else { return }
+        guard !isImporterPresented, pendingDelete == nil else { return }
 
         switch (focusArea, command) {
         case (.content, .left):
@@ -475,6 +585,23 @@ struct HomeMenuView: View {
         case (.content, .up):
             focusArea = .functions
             playSound(.move)
+        case (.content, .down):
+            if case .game = focusedItem {
+                focusArea = .shelf
+                shelfIndex = 0
+                playSound(.move)
+            }
+        case (.shelf, .left):
+            move(&shelfIndex, by: -1, count: ShelfCard.allCases.count)
+        case (.shelf, .right):
+            move(&shelfIndex, by: 1, count: ShelfCard.allCases.count)
+        case (.shelf, .up), (.shelf, .back):
+            focusArea = .content
+            playSound(.back)
+        case (.shelf, .confirm):
+            if case .game(let game) = focusedItem {
+                activateShelf(game)
+            }
         case (.content, .confirm):
             activateContent()
         case (.content, .options):
