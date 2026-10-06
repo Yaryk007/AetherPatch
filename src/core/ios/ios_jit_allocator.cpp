@@ -19,6 +19,7 @@
 #include "common/logging/log.h"
 
 #include <atomic>
+#include <mutex>                // std::call_once
 #include <chrono>
 #include <dlfcn.h>              // dlopen, dlsym
 #include <libkern/OSCacheControl.h> // sys_icache_invalidate
@@ -87,6 +88,18 @@ const BreakpointJITSymbols& GetBreakpointJITSymbols() noexcept {
 
 } // namespace
 
+// Shared JIT pool, implemented in FEXCore's Utils/Allocator.cpp (FEXCore_Base) so FEXCore's own
+// code buffers and this file's regions come out of the same pre-claimed memory.
+extern "C" {
+int AetherJITPoolAdopt(void* rw, void* rx, size_t size);
+int AetherJITPoolAllocate(size_t size, void** out_rw, void** out_rx);
+int AetherJITPoolFree(void* rw, size_t size);
+size_t AetherJITPoolSize();
+size_t AetherJITPoolUsed();
+void AetherJITSetDebuggerDetached(int detached);
+int AetherJITIsDebuggerDetached();
+}
+
 namespace Core {
 
 // Set (via IosJitTrapGuard below) for exactly the duration of the BreakGetJITMapping call --
@@ -121,7 +134,35 @@ namespace {
 std::atomic<uint64_t> g_allocation_counter{0};
 }
 
+namespace {
+// Asks StikDebug directly for a fresh execute-capable region and remaps a writable alias of it.
+// Used by Prewarm() to claim the shared pool, and by Allocate() only as a fallback while the
+// debugger is still attached.
+DualMappedRegion AllocateFromDebugger(size_t bytes) noexcept;
+} // namespace
+
 DualMappedRegion DualMappedRegion::Allocate(size_t bytes) noexcept {
+    void* pool_rw = nullptr;
+    void* pool_rx = nullptr;
+    if (AetherJITPoolAllocate(bytes, &pool_rw, &pool_rx) != 0) {
+        DualMappedRegion region;
+        region.rw_addr = static_cast<uint8_t*>(pool_rw);
+        region.rx_addr = static_cast<uint8_t*>(pool_rx);
+        region.size = bytes;
+        return region;
+    }
+    if (AetherJITIsDebuggerDetached() != 0) {
+        LOG_CRITICAL(Core,
+                     "ios_jit_allocator: JIT pool exhausted (requested {} bytes, pool {} / {} used) "
+                     "and the debugger is already detached",
+                     bytes, AetherJITPoolUsed(), AetherJITPoolSize());
+        return DualMappedRegion{};
+    }
+    return AllocateFromDebugger(bytes);
+}
+
+namespace {
+DualMappedRegion AllocateFromDebugger(size_t bytes) noexcept {
     DualMappedRegion region;
     const uint64_t request_number = g_allocation_counter.fetch_add(1, std::memory_order_relaxed) + 1;
 
@@ -226,8 +267,15 @@ DualMappedRegion DualMappedRegion::Allocate(size_t bytes) noexcept {
 
     return region;
 }
+} // namespace
 
 void DualMappedRegion::Release() noexcept {
+    if (rw_addr != nullptr && AetherJITPoolFree(rw_addr, size) != 0) {
+        rw_addr = nullptr;
+        rx_addr = nullptr;
+        size = 0;
+        return;
+    }
     if (rw_addr != nullptr) {
         vm_deallocate(mach_task_self(), reinterpret_cast<vm_address_t>(rw_addr), static_cast<vm_size_t>(size));
         rw_addr = nullptr;
@@ -267,8 +315,49 @@ void Detach() noexcept {
         return;
     }
     LOG_INFO(Core, "ios_jit_allocator: calling BreakJITDetach() — debugger will detach");
+    // Flag first: once the debugger is gone a BreakGetJITMapping BRK would trap unserviced, so
+    // no allocation may fall back to it from here on.
+    AetherJITSetDebuggerDetached(1);
     symbols.jit_detach();
     LOG_INFO(Core, "ios_jit_allocator: debugger detached; RX mappings persist");
+}
+
+bool Prewarm(size_t bytes, bool detach) noexcept {
+    static std::once_flag once;
+    static bool result = false;
+    std::call_once(once, [&] {
+        if (AetherJITPoolSize() != 0) {
+            result = true;
+            return;
+        }
+        DualMappedRegion region = AllocateFromDebugger(bytes);
+        if (!region.IsValid()) {
+            LOG_CRITICAL(Core, "ios_jit_allocator: failed to claim the {} byte JIT pool", bytes);
+            return;
+        }
+        if (AetherJITPoolAdopt(region.rw_addr, region.rx_addr, region.size) == 0) {
+            LOG_CRITICAL(Core, "ios_jit_allocator: JIT pool refused region of {} bytes", bytes);
+            return;
+        }
+        // The pool owns both mappings now; don't let the destructor deallocate them.
+        region.rw_addr = nullptr;
+        region.rx_addr = nullptr;
+        region.size = 0;
+        LOG_INFO(Core, "ios_jit_allocator: claimed {} MB JIT pool", bytes >> 20);
+        result = true;
+        if (detach) {
+            Detach();
+        }
+    });
+    return result;
+}
+
+size_t PoolSize() noexcept {
+    return AetherJITPoolSize();
+}
+
+size_t PoolUsed() noexcept {
+    return AetherJITPoolUsed();
 }
 
 bool IsExpectingJitMappingTrap() noexcept {

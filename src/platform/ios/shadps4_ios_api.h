@@ -150,6 +150,13 @@ void shadps4_register_first_frame_callback(void (*callback)(void));
 // attachment check, WILL crash the app when StikDebug isn't attached.
 int shadps4_probe_jit(void);
 
+// iOS 26: claims a `pool_mb` megabyte execute-capable JIT pool from StikDebug in one request,
+// then (if `detach` is non-zero) detaches the debugger so the rest of the session never depends
+// on StikDebug staying alive. All later JIT allocations are carved from that pool. Call right
+// after StikDebug attaches and before shadps4_init(); same "debugger must be attached" rule as
+// shadps4_probe_jit(). Idempotent. Returns non-zero on success.
+int shadps4_jit_prewarm(uint32_t pool_mb, int detach);
+
 // Returns the raw UIWindow* SDL created for the currently-running game (as an untyped
 // pointer, so this header stays C/Objective-C-agnostic; bridge it back with
 // `(__bridge UIWindow *)` or Swift's `Unmanaged<UIWindow>.fromOpaque(...).takeUnretainedValue()`

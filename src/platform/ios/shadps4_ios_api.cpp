@@ -265,6 +265,11 @@ extern "C" int shadps4_probe_jit() {
     return ok ? 1 : 0;
 }
 
+extern "C" int shadps4_jit_prewarm(uint32_t pool_mb, int detach) {
+    const size_t bytes = static_cast<size_t>(std::clamp<uint32_t>(pool_mb, 32, 1024)) << 20;
+    return Core::IosJitAllocator::Prewarm(bytes, detach != 0) ? 1 : 0;
+}
+
 extern "C" void* shadps4_get_uikit_window() {
     if (!g_init_ok) {
         return nullptr;

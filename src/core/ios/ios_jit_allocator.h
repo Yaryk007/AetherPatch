@@ -137,6 +137,21 @@ namespace IosJitAllocator {
 // and may interfere with other debugging tools.
 void Detach() noexcept;
 
+// iOS 26: claims one `bytes`-sized execute-capable region from StikDebug (a single
+// BreakGetJITMapping round trip), hands it to the shared JIT pool every later
+// DualMappedRegion::Allocate() and FEXCore code-buffer allocation is carved from, and then
+// (if `detach`) detaches the debugger. Must run while StikDebug is attached, before the game
+// starts. Idempotent: later calls return the first call's result without touching the debugger.
+//
+// Why: keeping StikDebug attached for the whole session (the old approach) routes every signal
+// shadPS4 raises through a debugger iOS suspends as soon as this app is in the foreground again,
+// which freezes the emulator. See FEXCore's Allocator.cpp "Pre-claimed JIT pool" comment.
+bool Prewarm(size_t bytes, bool detach) noexcept;
+
+// Bytes in the shared JIT pool (0 if Prewarm never succeeded) and bytes currently handed out.
+[[nodiscard]] size_t PoolSize() noexcept;
+[[nodiscard]] size_t PoolUsed() noexcept;
+
 // True for exactly the duration of DualMappedRegion::Allocate()'s BreakGetJITMapping call on
 // this thread -- see ios_jit_allocator.cpp's g_expecting_jit_mapping_trap for why this exists.
 // Called from signals.cpp's SIGTRAP handler to distinguish a StikDebug-unserviced JIT-mapping

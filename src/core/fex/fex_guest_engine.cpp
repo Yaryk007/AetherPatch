@@ -2071,7 +2071,9 @@ EngineResult<std::unique_ptr<GuestEngine>> GuestEngine::Create(GuestBridge& brid
                           static_cast<char*>(impl->CallbackReturn->GetRW()) + impl->PageSize);
   // No mprotect needed: RX mapping is already executable (set up by BreakGetJITMapping).
 
-  // Do NOT detach the debugger here. This originally assumed all DualMappedRegion
+  // Do NOT detach the debugger here: Core::IosJitAllocator::Prewarm already did, right after
+  // StikDebug attached, once the whole session's JIT pool was claimed (so the on-demand
+  // allocations described below are now served from that pool). History: this originally assumed all DualMappedRegion
   // allocations were front-loaded before the run loop starts (see the "call once...
   // before the emulator's main run loop starts" comment in ios_jit_allocator.h), but
   // that's false: flatten_extended_userdata_pass.cpp calls DualMappedRegion::Allocate()

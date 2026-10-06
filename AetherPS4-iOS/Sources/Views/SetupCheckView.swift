@@ -175,7 +175,9 @@ struct SetupCheckView: View {
             // Gate the real BRK-based probe behind checkDebugged() -- see this view's
             // header comment for why calling shadps4_probe_jit() without it is unsafe.
             let debuggerAttached = checkDebugged()
-            let jitOk = debuggerAttached && (shadps4_probe_jit() != 0)
+            // prewarmJIT() claims the session's JIT pool (and detaches StikDebug) the first
+            // time; the probe then exercises an allocation out of that pool.
+            let jitOk = debuggerAttached && prewarmJIT() && (shadps4_probe_jit() != 0)
 
             DispatchQueue.main.async {
                 jitPhase = jitOk ? .ok : .failed

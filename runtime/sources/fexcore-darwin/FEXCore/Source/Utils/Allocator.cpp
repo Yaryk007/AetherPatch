@@ -458,11 +458,125 @@ void* GetWritableAddress(void* ExecAddr) {
 // short of StikDebug's own logs.
 std::atomic<uint64_t> AllocationCounter{0};
 
+// ─── Pre-claimed JIT pool (iOS 26) ──────────────────────────────────────────
+//
+// On iOS 26 StikDebug only stays usable while it's in the foreground. Once the app being debugged
+// comes back to the front, iOS suspends StikDebug and later kills it for exceeding its background
+// CPU budget. While that debugger is still attached, every signal this process raises (and shadPS4
+// raises plenty: SIGSEGV/SIGBUS page tracking, FEX's own signal-driven fault handling) is first
+// routed through the suspended debugger, which makes the whole emulator freeze. A
+// BreakGetJITMapping BRK issued in the same state never returns.
+//
+// So instead of asking the debugger for executable memory on demand all session long, the app
+// claims ONE large execute-capable region right after StikDebug attaches (see
+// Core::IosJitAllocator::Prewarm), hands it to this pool, and detaches the debugger. Every later
+// JIT allocation -- FEXCore code buffers/dispatchers here, plus shadPS4's own veneers, SRT walkers
+// and trampolines through extern "C" AetherJITPool* below -- is carved out of that pool locally,
+// with no further debugger round trip. Allocations are page-granular first-fit with coalescing on
+// free; sizes in practice are a handful of uniform values (16MB code buffers, 16KB batches), so
+// fragmentation stays negligible.
+namespace {
+struct JITPool {
+  std::mutex Mutex;
+  uintptr_t RWBase = 0;
+  uintptr_t RXBase = 0;
+  size_t Size = 0;
+  size_t PageSize = 16384;
+  size_t Used = 0;
+  std::map<size_t, size_t> FreeRanges; // offset -> length, both page-aligned
+};
+
+JITPool& GetJITPool() {
+  static JITPool Pool;
+  return Pool;
+}
+
+std::atomic<bool> JITDebuggerDetached{false};
+
+size_t AlignToPage(size_t Size, size_t PageSize) {
+  return (Size + PageSize - 1) & ~(PageSize - 1);
+}
+
+// Returns true and fills OutRW/OutRX if the pool could satisfy the request.
+bool PoolAllocate(size_t Size, uintptr_t* OutRW, uintptr_t* OutRX) {
+  auto& Pool = GetJITPool();
+  std::lock_guard<std::mutex> Lock(Pool.Mutex);
+  if (Pool.Size == 0 || Size == 0) {
+    return false;
+  }
+  const size_t Aligned = AlignToPage(Size, Pool.PageSize);
+  for (auto It = Pool.FreeRanges.begin(); It != Pool.FreeRanges.end(); ++It) {
+    const auto [Offset, Length] = *It;
+    if (Length < Aligned) {
+      continue;
+    }
+    Pool.FreeRanges.erase(It);
+    if (Length > Aligned) {
+      Pool.FreeRanges.emplace(Offset + Aligned, Length - Aligned);
+    }
+    Pool.Used += Aligned;
+    *OutRW = Pool.RWBase + Offset;
+    *OutRX = Pool.RXBase + Offset;
+    return true;
+  }
+  return false;
+}
+
+// Returns true if RWAddr belongs to the pool (and was given back to it).
+bool PoolFree(uintptr_t RWAddr, size_t Size) {
+  auto& Pool = GetJITPool();
+  std::lock_guard<std::mutex> Lock(Pool.Mutex);
+  if (Pool.Size == 0 || RWAddr < Pool.RWBase || RWAddr >= Pool.RWBase + Pool.Size) {
+    return false;
+  }
+  size_t Offset = RWAddr - Pool.RWBase;
+  size_t Length = std::min(AlignToPage(Size, Pool.PageSize), Pool.Size - Offset);
+
+  // Callers may have changed protection on part of their range (CPUBackend turns the last page
+  // of every code buffer into a PROT_NONE guard page). Restore it before the range is reused.
+  vm_protect(mach_task_self(), static_cast<vm_address_t>(RWAddr), static_cast<vm_size_t>(Length), FALSE,
+             VM_PROT_READ | VM_PROT_WRITE);
+
+  Pool.Used -= std::min(Pool.Used, Length);
+  auto Next = Pool.FreeRanges.lower_bound(Offset);
+  if (Next != Pool.FreeRanges.end() && Offset + Length == Next->first) {
+    Length += Next->second;
+    Next = Pool.FreeRanges.erase(Next);
+  }
+  if (Next != Pool.FreeRanges.begin()) {
+    auto Prev = std::prev(Next);
+    if (Prev->first + Prev->second == Offset) {
+      Offset = Prev->first;
+      Length += Prev->second;
+      Pool.FreeRanges.erase(Prev);
+    }
+  }
+  Pool.FreeRanges.emplace(Offset, Length);
+  return true;
+}
+} // namespace
+
 void* iOSJITAlloc(size_t Size) {
   const uint64_t RequestNumber = AllocationCounter.fetch_add(1, std::memory_order_relaxed) + 1;
   const auto& Symbols = GetBreakpointJITSymbols();
   if (Symbols.get_jit_mapping == nullptr) {
     LogMan::Msg::EFmt("iOSJITAlloc #{}: BreakpointJIT symbols unavailable", RequestNumber);
+    return nullptr;
+  }
+
+  {
+    uintptr_t PoolRW = 0, PoolRX = 0;
+    if (PoolAllocate(Size, &PoolRW, &PoolRX)) {
+      auto& Table = GetJITMappingTable();
+      std::lock_guard<std::mutex> Lock(Table.Mutex);
+      Table.WriteToExec[PoolRW] = MappedRegion{PoolRX, Size};
+      Table.ExecToWrite[PoolRX] = MappedRegion{PoolRW, Size};
+      return reinterpret_cast<void*>(PoolRW);
+    }
+  }
+  if (JITDebuggerDetached.load(std::memory_order_acquire)) {
+    LogMan::Msg::EFmt("iOSJITAlloc #{}: JIT pool exhausted (size={}) and the debugger is already detached",
+                      RequestNumber, Size);
     return nullptr;
   }
 
@@ -525,6 +639,9 @@ bool iOSJITFreeIfOwned(void* WriteAddr, size_t Size) {
   const auto ExecBase = It->second.OtherBase;
   Table.WriteToExec.erase(It);
   Table.ExecToWrite.erase(ExecBase);
+  if (PoolFree(reinterpret_cast<uintptr_t>(WriteAddr), Size)) {
+    return true;
+  }
   vm_deallocate(mach_task_self(), reinterpret_cast<vm_address_t>(WriteAddr), static_cast<vm_size_t>(Size));
   vm_deallocate(mach_task_self(), static_cast<vm_address_t>(ExecBase), static_cast<vm_size_t>(Size));
   return true;
@@ -557,3 +674,65 @@ iOSJITAddressKind iOSJITDescribeAddress(void* Addr, uintptr_t* OutRegionBase, si
 }
 #endif
 } // namespace FEXCore::Allocator
+
+#if defined(__APPLE__) && TARGET_OS_IPHONE
+// C entry points so shadPS4's own iOS JIT code (src/core/ios/ios_jit_allocator.cpp) shares the
+// same pool without depending on FEXCore's C++ namespaces.
+extern "C" {
+
+// Takes ownership of an already dual-mapped, execute-capable region. Only the first call has any
+// effect. Returns 1 if the pool now uses this region.
+int AetherJITPoolAdopt(void* RW, void* RX, size_t Size) {
+  auto& Pool = FEXCore::Allocator::GetJITPool();
+  std::lock_guard<std::mutex> Lock(Pool.Mutex);
+  if (Pool.Size != 0 || RW == nullptr || RX == nullptr || Size == 0) {
+    return 0;
+  }
+  const long PageSize = sysconf(_SC_PAGESIZE);
+  Pool.PageSize = PageSize > 0 ? static_cast<size_t>(PageSize) : 16384;
+  Pool.RWBase = reinterpret_cast<uintptr_t>(RW);
+  Pool.RXBase = reinterpret_cast<uintptr_t>(RX);
+  Pool.Size = Size & ~(Pool.PageSize - 1);
+  Pool.Used = 0;
+  Pool.FreeRanges.clear();
+  Pool.FreeRanges.emplace(0, Pool.Size);
+  LogMan::Msg::IFmt("JIT pool: adopted rw={} rx={} size={}", RW, RX, Pool.Size);
+  return 1;
+}
+
+int AetherJITPoolAllocate(size_t Size, void** OutRW, void** OutRX) {
+  uintptr_t RW = 0, RX = 0;
+  if (!FEXCore::Allocator::PoolAllocate(Size, &RW, &RX)) {
+    return 0;
+  }
+  *OutRW = reinterpret_cast<void*>(RW);
+  *OutRX = reinterpret_cast<void*>(RX);
+  return 1;
+}
+
+int AetherJITPoolFree(void* RW, size_t Size) {
+  return FEXCore::Allocator::PoolFree(reinterpret_cast<uintptr_t>(RW), Size) ? 1 : 0;
+}
+
+size_t AetherJITPoolSize() {
+  auto& Pool = FEXCore::Allocator::GetJITPool();
+  std::lock_guard<std::mutex> Lock(Pool.Mutex);
+  return Pool.Size;
+}
+
+size_t AetherJITPoolUsed() {
+  auto& Pool = FEXCore::Allocator::GetJITPool();
+  std::lock_guard<std::mutex> Lock(Pool.Mutex);
+  return Pool.Used;
+}
+
+void AetherJITSetDebuggerDetached(int Detached) {
+  FEXCore::Allocator::JITDebuggerDetached.store(Detached != 0, std::memory_order_release);
+}
+
+int AetherJITIsDebuggerDetached() {
+  return FEXCore::Allocator::JITDebuggerDetached.load(std::memory_order_acquire) ? 1 : 0;
+}
+
+} // extern "C"
+#endif

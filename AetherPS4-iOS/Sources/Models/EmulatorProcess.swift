@@ -57,6 +57,13 @@ final class EmulatorProcess {
             return
         }
 
+        // Claim the JIT pool and let StikDebug go before anything else runs (no-op after the
+        // first time). Without this, iOS 26 suspending StikDebug freezes the game.
+        guard prewarmJIT() else {
+            appendLine(.stderr, "[AetherPS4] Could not get JIT memory from StikDebug. Relaunch the app and enable JIT again.")
+            return
+        }
+
         configureJITEnvVars()
         isPreparingToLaunch = true
 
