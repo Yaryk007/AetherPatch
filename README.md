@@ -2,11 +2,44 @@
   <img src="AetherPS4-iOS/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png" width="140" alt="AetherPS4 logo">
 </p>
 
-# AetherPS4
+# AetherPatch
 
-Experimental PlayStation 4 emulation for iOS, built on [shadPS4](https://github.com/shadps4-emu/shadPS4)
+A fork of [AetherPS4](https://github.com/Leviidev/AetherPS4) that fixes JIT on **iOS 26**.
+
+AetherPS4 is experimental PlayStation 4 emulation for iOS, built on [shadPS4](https://github.com/shadps4-emu/shadPS4)
 with an ARM64-ported [FEXCore](https://github.com/FEX-Emu/FEX) x86-64 → ARM64 JIT and a native
-SwiftUI front end. 
+SwiftUI front end.
+
+## What this fork changes
+
+- **JIT script fixed.** The StikDebug script bundled with the app never handled the "allocate a
+  fresh region" request (`x0 == 0`) that every JIT allocation in the emulator actually sends,
+  so every request came back as a null pointer. The new script allocates the region (`_M…,rx`)
+  before preparing it, and supports the detach command.
+- **No more freezes after StikDebug goes to the background.** On iOS 26, StikDebug gets suspended
+  (and eventually killed) as soon as you switch back to the emulator. Upstream kept the debugger
+  attached for the whole session, so the next signal or JIT request froze the game. AetherPatch
+  claims one JIT pool (128 MB by default) right after StikDebug attaches, detaches the debugger,
+  and serves every later JIT allocation (FEXCore code buffers, HLE veneers, shader SRT walkers)
+  from that pool.
+- **Reproducible builds.** The top-level `CMakeLists.txt` was accidentally overwritten upstream,
+  and the Xcode project pointed at the original author's machine. Both are fixed, and GitHub
+  Actions now builds the IPA from a clean checkout.
+
+### Getting the IPA
+
+Open the [Actions tab](../../actions/workflows/build-ipa.yml), pick the latest green run and
+download the `AetherPatch-ipa` artifact. Sideload it with SideStore, AltStore or similar, then
+enable JIT with [StikDebug](https://github.com/StikDebug/StikDebug).
+
+### Tuning (optional)
+
+Both settings are user defaults in the app's domain:
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `jitPoolSizeMB` | `128` | Size of the JIT pool claimed at launch (32–1024). |
+| `jitKeepDebuggerAttached` | `false` | Keep StikDebug attached instead of detaching after the pool is claimed (the old behaviour). |
 
 ## File structure
 
@@ -57,8 +90,10 @@ SwiftUI front end.
 
 ## Building
 
-See `PORTING.md` for platform-porting notes and `runtime/scripts/build-ipa.sh` for how the iOS
-`.ipa` is built and packaged. The iOS app requires an external JIT-granting mechanism
+On a Mac with Xcode 26, `brew install ninja ccache`, fetch the submodules, then run
+`scripts/ci/build-ios.sh`. It builds FEXCore, the shadPS4 core and the app, and writes
+`build/ipa/AetherPatch.ipa`. The CI workflow (`.github/workflows/build-ipa.yml`) runs the
+same script. See `PORTING.md` for platform-porting notes. The iOS app requires an external JIT-granting mechanism
 (StikDebug or similar) since sideloaded iOS apps cannot request the `MAP_JIT` entitlement.
 
 ## License
