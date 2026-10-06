@@ -37,8 +37,8 @@ jobs:
       - name: Install tools
         run: brew install ninja ccache
 
-      - name: ccache
-        uses: actions/cache@v4
+      - name: Restore ccache
+        uses: actions/cache/restore@v4
         with:
           path: .ccache
           key: ccache-ios-${{ github.sha }}
@@ -49,6 +49,13 @@ jobs:
           CCACHE_DIR: ${{ github.workspace }}/.ccache
           CCACHE_MAXSIZE: 3G
         run: bash scripts/ci/build-ios.sh "$PWD/build/ipa"
+
+      - name: Save ccache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .ccache
+          key: ccache-ios-${{ github.sha }}-${{ github.run_attempt }}
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
