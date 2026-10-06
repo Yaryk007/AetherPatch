@@ -1,0 +1,58 @@
+name: Build IPA
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: build-ipa-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ipa:
+    runs-on: macos-26
+    timeout-minutes: 180
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Only the submodules the iOS build uses (skips the Android/macOS-only ones).
+      - name: Fetch submodules
+        run: |
+          skip='externals/mesa-kosmickrisp|externals/winlator-app|runtime/sources/box64'
+          paths=$(git config -f .gitmodules --get-regexp '\.path$' | awk '{print $2}' | grep -Ev "^($skip)$")
+          git submodule update --init --depth 1 --jobs 8 -- $paths
+          # Nested submodules some externals need (e.g. sirit's SPIRV-Headers).
+          git submodule foreach --quiet 'git submodule update --init --recursive --depth 1 --jobs 8 || true'
+
+      - name: Select Xcode
+        run: |
+          sudo xcode-select -s "$(ls -d /Applications/Xcode_26*.app | sort -V | tail -1)"
+          xcodebuild -version
+
+      - name: Install tools
+        run: brew install ninja ccache
+
+      - name: ccache
+        uses: actions/cache@v4
+        with:
+          path: .ccache
+          key: ccache-ios-${{ github.sha }}
+          restore-keys: ccache-ios-
+
+      - name: Build
+        env:
+          CCACHE_DIR: ${{ github.workspace }}/.ccache
+          CCACHE_MAXSIZE: 3G
+        run: bash scripts/ci/build-ios.sh "$PWD/build/ipa"
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: AetherPatch-ipa
+          path: build/ipa/AetherPatch.ipa
+          if-no-files-found: error

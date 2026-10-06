@@ -651,22 +651,22 @@
 				ENABLE_BITCODE = NO;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
-					"/Users/davi/Documents/Coding/AetherCore4/aetherps4-public-release/AetherPS4-iOS/Frameworks",
+					"$(PROJECT_DIR)/../AetherPS4-iOS/Frameworks",
 				);
 				HEADER_SEARCH_PATHS = (
 					"$(inherited)",
-					"/Users/davi/Documents/Coding/AetherCore4/aetherps4-public-release/src/platform/ios",
-					"/Users/davi/Documents/Coding/AetherCore4/aetherps4-public-release/src/core/pkg_extract",
-					"/Users/davi/Documents/Coding/AetherCore4/aetherps4-public-release/src/core/sysmodules_import",
-					"/Users/davi/Documents/Coding/AetherCore4/aetherps4-public-release/src/core/user_profile_bridge",
+					"$(PROJECT_DIR)/../src/platform/ios",
+					"$(PROJECT_DIR)/../src/core/pkg_extract",
+					"$(PROJECT_DIR)/../src/core/sysmodules_import",
+					"$(PROJECT_DIR)/../src/core/user_profile_bridge",
 				);
 				INFOPLIST_FILE = Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.4;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
 				LIBRARY_SEARCH_PATHS = (
 					"$(inherited)",
-					"/Users/davi/Documents/Coding/AetherCore4/aetherps4-public-release/runtime/build/shadps4-ios",
-					"/Users/davi/Documents/Coding/AetherCore4/aetherps4-public-release/runtime/build/shadps4-ios/**",
+					"$(PROJECT_DIR)/../runtime/build/shadps4-ios",
+					"$(PROJECT_DIR)/../runtime/build/shadps4-ios/**",
 				);
 				ONLY_ACTIVE_ARCH = YES;
 				OTHER_LDFLAGS = (
@@ -751,22 +751,22 @@
 				ENABLE_BITCODE = NO;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
-					"/Users/davi/Documents/Coding/AetherCore4/aetherps4-public-release/AetherPS4-iOS/Frameworks",
+					"$(PROJECT_DIR)/../AetherPS4-iOS/Frameworks",
 				);
 				HEADER_SEARCH_PATHS = (
 					"$(inherited)",
-					"/Users/davi/Documents/Coding/AetherCore4/aetherps4-public-release/src/platform/ios",
-					"/Users/davi/Documents/Coding/AetherCore4/aetherps4-public-release/src/core/pkg_extract",
-					"/Users/davi/Documents/Coding/AetherCore4/aetherps4-public-release/src/core/sysmodules_import",
-					"/Users/davi/Documents/Coding/AetherCore4/aetherps4-public-release/src/core/user_profile_bridge",
+					"$(PROJECT_DIR)/../src/platform/ios",
+					"$(PROJECT_DIR)/../src/core/pkg_extract",
+					"$(PROJECT_DIR)/../src/core/sysmodules_import",
+					"$(PROJECT_DIR)/../src/core/user_profile_bridge",
 				);
 				INFOPLIST_FILE = Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.4;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
 				LIBRARY_SEARCH_PATHS = (
 					"$(inherited)",
-					"/Users/davi/Documents/Coding/AetherCore4/aetherps4-public-release/runtime/build/shadps4-ios",
-					"/Users/davi/Documents/Coding/AetherCore4/aetherps4-public-release/runtime/build/shadps4-ios/**",
+					"$(PROJECT_DIR)/../runtime/build/shadps4-ios",
+					"$(PROJECT_DIR)/../runtime/build/shadps4-ios/**",
 				);
 				ONLY_ACTIVE_ARCH = YES;
 				OTHER_LDFLAGS = (
