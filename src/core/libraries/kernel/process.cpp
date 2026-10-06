@@ -9,6 +9,9 @@
 #include "core/libraries/kernel/process.h"
 #include "core/libraries/libs.h"
 #include "core/linker.h"
+#ifdef SHADPS4_ENABLE_FEX_GUEST_CPU
+#include "core/guest_cpu/guest_callback.h"
+#endif
 
 namespace Libraries::Kernel {
 
@@ -71,10 +74,129 @@ void* PS4_SYSV_ABI sceKernelGetProcParam() {
     return linker->GetProcParam();
 }
 
+
+// ─── libjbc (homebrew jailbreak library) ────────────────────────────────────
+//
+// Homebrew such as the PS4 Homebrew Store loads Media/jb.prx (sleirsgoevy's libjbc), looks its
+// functions up with sceKernelDlsym, and uses them to escape the sandbox by patching the PS4
+// kernel. There is no PS4 kernel here and the app already sees its files freely, so the real
+// module would only spin forever. Loading jb.prx instead returns this built-in stand-in, whose
+// functions report success; jbc_run_as_root just runs the callback.
+namespace {
+constexpr s32 kJbcModuleHandle = 0x4A424300; // never a real linker module index
+
+bool IsJbcModule(std::string_view path) {
+    const auto slash = path.find_last_of('/');
+    const auto name = slash == std::string_view::npos ? path : path.substr(slash + 1);
+    return name == "jb.prx" || name == "libjbc.prx" || name == "libjbc.sprx";
+}
+
+Core::Loader::SymbolResolver JbcSymbol(const char* name) {
+    return {name, name, "libjbc", 1, "libjbc", Core::Loader::SymbolType::Function};
+}
+} // namespace
+
+s32 PS4_SYSV_ABI jbc_get_cred(void* cred) {
+    return 0;
+}
+
+s32 PS4_SYSV_ABI jbc_jailbreak_cred(void* cred) {
+    return 0;
+}
+
+s32 PS4_SYSV_ABI jbc_set_cred(const void* cred) {
+    return 0;
+}
+
+u64 PS4_SYSV_ABI jbc_get_prison0() {
+    return 1;
+}
+
+u64 PS4_SYSV_ABI jbc_get_rootvnode() {
+    return 1;
+}
+
+s32 PS4_SYSV_ABI jbc_mount_in_sandbox(const char* system_path, const char* mnt_name) {
+    LOG_INFO(Lib_Kernel, "libjbc: mount {} as {} (no-op, the sandbox is not enforced)",
+             system_path ? system_path : "", mnt_name ? mnt_name : "");
+    return 0;
+}
+
+s32 PS4_SYSV_ABI jbc_unmount_in_sandbox(const char* mnt_name) {
+    return 0;
+}
+
+// Kernel read/write helpers: nothing to read or write, report failure.
+s32 PS4_SYSV_ABI jbc_krw_memcpy(u64 dst, u64 src, u64 size, s32 kind) {
+    return -1;
+}
+
+u64 PS4_SYSV_ABI jbc_krw_read64(u64 addr, s32 kind) {
+    return 0;
+}
+
+s32 PS4_SYSV_ABI jbc_krw_write64(u64 addr, s32 kind, u64 value) {
+    return -1;
+}
+
+u64 PS4_SYSV_ABI jbc_krw_get_td() {
+    return 0;
+}
+
+s32 PS4_SYSV_ABI jbc_run_as_root(void (*fn)(void*), void* arg, s32 cwd_mode) {
+    if (fn == nullptr) {
+        return -1;
+    }
+#ifdef SHADPS4_ENABLE_FEX_GUEST_CPU
+    if (AetherPS4::GuestCpu::IsGuestFunctionAddress(reinterpret_cast<const void*>(fn))) {
+        AetherPS4::GuestCpu::RunGuestFunctionOrAbort(reinterpret_cast<void*>(fn),
+                                                     "jbc_run_as_root", arg);
+        return 0;
+    }
+#endif
+    reinterpret_cast<void(PS4_SYSV_ABI*)(void*)>(fn)(arg);
+    return 0;
+}
+
+// The Store/Itemzflow build of jb.prx adds these two: jailbreak the process / restore the
+// sandbox before exiting. Both report success (0).
+s32 PS4_SYSV_ABI jbc_jailbreak_me() {
+    return 0;
+}
+
+s32 PS4_SYSV_ABI jbc_rejail_multi() {
+    return 0;
+}
+
+void RegisterJbc(Core::Loader::SymbolsResolver* sym) {
+    LIB_FUNCTION("jailbreak_me", "libjbc", 1, "libjbc", jbc_jailbreak_me);
+    LIB_FUNCTION("rejail_multi", "libjbc", 1, "libjbc", jbc_rejail_multi);
+    LIB_FUNCTION("jbc_get_cred", "libjbc", 1, "libjbc", jbc_get_cred);
+    LIB_FUNCTION("jbc_jailbreak_cred", "libjbc", 1, "libjbc", jbc_jailbreak_cred);
+    LIB_FUNCTION("jbc_set_cred", "libjbc", 1, "libjbc", jbc_set_cred);
+    LIB_FUNCTION("jbc_get_prison0", "libjbc", 1, "libjbc", jbc_get_prison0);
+    LIB_FUNCTION("jbc_get_rootvnode", "libjbc", 1, "libjbc", jbc_get_rootvnode);
+    LIB_FUNCTION("jbc_mount_in_sandbox", "libjbc", 1, "libjbc", jbc_mount_in_sandbox);
+    LIB_FUNCTION("jbc_unmount_in_sandbox", "libjbc", 1, "libjbc", jbc_unmount_in_sandbox);
+    LIB_FUNCTION("jbc_krw_memcpy", "libjbc", 1, "libjbc", jbc_krw_memcpy);
+    LIB_FUNCTION("jbc_krw_read64", "libjbc", 1, "libjbc", jbc_krw_read64);
+    LIB_FUNCTION("jbc_krw_write64", "libjbc", 1, "libjbc", jbc_krw_write64);
+    LIB_FUNCTION("jbc_krw_get_td", "libjbc", 1, "libjbc", jbc_krw_get_td);
+    LIB_FUNCTION("jbc_run_as_root", "libjbc", 1, "libjbc", jbc_run_as_root);
+}
+
 s32 PS4_SYSV_ABI sceKernelLoadStartModule(const char* moduleFileName, u64 args, const void* argp,
                                           u32 flags, const void* pOpt, s32* pRes) {
     LOG_INFO(Lib_Kernel, "called filename = {}, args = {}", moduleFileName, args);
     ASSERT(flags == 0);
+
+    if (IsJbcModule(moduleFileName)) {
+        LOG_INFO(Lib_Kernel, "Using the built-in libjbc instead of {}", moduleFileName);
+        if (pRes != nullptr) {
+            *pRes = 0;
+        }
+        return kJbcModuleHandle;
+    }
 
     auto* mnt = Common::Singleton<Core::FileSys::MntPoints>::Instance();
     auto* linker = Common::Singleton<Core::Linker>::Instance();
@@ -113,6 +235,15 @@ s32 PS4_SYSV_ABI sceKernelLoadStartModule(const char* moduleFileName, u64 args, 
 
 s32 PS4_SYSV_ABI sceKernelDlsym(s32 handle, const char* symbol, void** addrp) {
     auto* linker = Common::Singleton<Core::Linker>::Instance();
+    if (handle == kJbcModuleHandle) {
+        const auto* record = linker->GetHLESymbols().FindSymbol(JbcSymbol(symbol));
+        if (record == nullptr) {
+            LOG_WARNING(Lib_Kernel, "libjbc: {} is not implemented", symbol);
+            return ORBIS_KERNEL_ERROR_ESRCH;
+        }
+        *addrp = reinterpret_cast<void*>(linker->GetCallableAddress(*record));
+        return *addrp != nullptr ? ORBIS_OK : ORBIS_KERNEL_ERROR_ESRCH;
+    }
     auto* module = linker->GetModule(handle);
     if (module == nullptr) {
         return ORBIS_KERNEL_ERROR_ESRCH;
@@ -289,6 +420,7 @@ s32 PS4_SYSV_ABI exit(s32 status) {
 }
 
 void RegisterProcess(Core::Loader::SymbolsResolver* sym) {
+    RegisterJbc(sym);
     LIB_FUNCTION("xeu-pV8wkKs", "libkernel", 1, "libkernel", sceKernelIsInSandbox);
     LIB_FUNCTION("WB66evu8bsU", "libkernel", 1, "libkernel", sceKernelGetCompiledSdkVersion);
     LIB_FUNCTION("WslcK1FQcGI", "libkernel", 1, "libkernel", sceKernelIsNeoMode);

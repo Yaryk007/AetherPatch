@@ -125,7 +125,9 @@ int ThreadState::CreateStack(PthreadAttr* attr) {
 
     stackaddr += guardsize;
     attr->stackaddr_attr = (void*)stackaddr;
-    ASSERT_MSG(!PthreadStackOverlapsHost(stackaddr, stacksize),
+    // Only meaningful when stacks are placed away from usrstack (FEX builds); the native
+    // desktop path deliberately allocates them there, like the real kernel.
+    ASSERT_MSG(!kPlacePthreadStackInGuestSafeRange || !PthreadStackOverlapsHost(stackaddr, stacksize),
                "pthread stack {:#x}+{:#x} overlaps host usrstack", stackaddr, stacksize);
     LOG_INFO(Kernel_Pthread, "mapped stack={:#x} size={:#x} guard={:#x} fex_safe={}", stackaddr,
              stacksize, guardsize, kPlacePthreadStackInGuestSafeRange);

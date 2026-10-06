@@ -78,6 +78,15 @@ Frontend::WindowSDL* g_window = nullptr;
 
 namespace Core {
 
+static std::atomic<u32> g_resolution_override_width{0};
+static std::atomic<u32> g_resolution_override_height{0};
+
+void SetResolutionOverride(u32 width, u32 height) {
+    g_resolution_override_width = width;
+    g_resolution_override_height = height;
+}
+
+
 Emulator::Emulator() {
     // Initialize NT API functions, set high priority and disable WER
 #ifdef _WIN32
@@ -330,6 +339,12 @@ void Emulator::PrepareWindow(std::filesystem::path file, std::vector<std::string
     }
 
     EmulatorSettings.Load(id);
+    if (g_resolution_override_width != 0 && g_resolution_override_height != 0) {
+        EmulatorSettings.SetInternalScreenWidth(g_resolution_override_width);
+        EmulatorSettings.SetInternalScreenHeight(g_resolution_override_height);
+        LOG_INFO(Loader, "Widescreen hack: rendering at {}x{}", g_resolution_override_width.load(),
+                 g_resolution_override_height.load());
+    }
     // Switch to configured log
     Common::Log::Switch((!id.empty() && EmulatorSettings.IsLogSeparate()) ? id + ".log"
                                                                           : "shad_log.txt");
@@ -532,6 +547,19 @@ void Emulator::RunLoop() {
         std::filesystem::create_directory(mount_download_dir);
     }
     mnt->Mount(mount_download_dir, "/download0");
+
+    // The PS4's /user partition. Apps live under /user/app/<title id>, and homebrew writes its
+    // logs and settings next to itself there (the PS4 Homebrew Store gives up if it can't).
+    const auto mount_user_dir = Common::FS::GetUserPath(Common::FS::PathType::UserDir) / "ps4_user";
+    std::filesystem::create_directories(mount_user_dir / "app" / id / "logs");
+    mnt->Mount(mount_user_dir, "/user");
+
+    // Real-hardware paths some homebrew uses: its own app0 under the sandbox mount point, and
+    // /system/vsh/app, where homebrew installs companion apps (the Store's daemon).
+    mnt->Mount(mnt->GetHostPath("/app0"), "/mnt/sandbox/pfsmnt/" + id + "-app0", true);
+    const auto mount_vsh_app_dir = Common::FS::GetUserPath(Common::FS::PathType::UserDir) / "ps4_system" / "vsh" / "app";
+    std::filesystem::create_directories(mount_vsh_app_dir);
+    mnt->Mount(mount_vsh_app_dir, "/system/vsh/app");
 
     const auto& mount_captures_dir = Common::FS::GetUserPath(Common::FS::PathType::CapturesDir);
     if (!std::filesystem::exists(mount_captures_dir)) {

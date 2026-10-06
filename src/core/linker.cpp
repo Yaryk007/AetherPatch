@@ -1066,4 +1066,22 @@ void Linker::DebugDump() {
     }
 }
 
+u64 Linker::GetCallableAddress(const Loader::SymbolRecord& record) {
+#ifdef SHADPS4_ENABLE_FEX_GUEST_CPU
+    if (record.hle_adapter != nullptr) {
+        if (m_hle_veneers == nullptr) {
+            m_hle_veneers = std::make_unique<GuestCpu::HleVeneerAllocator>();
+        }
+        const auto veneer = m_hle_veneers->Allocate(*record.hle_adapter);
+        if (const auto* failure = std::get_if<GuestCpu::HleVeneerFailure>(&veneer)) {
+            LOG_ERROR(Core_Linker, "Unable to allocate FEX HLE veneer for {}: {}", record.name,
+                      failure->error);
+            return 0;
+        }
+        return std::get<u64>(veneer);
+    }
+#endif
+    return record.virtual_address;
+}
+
 } // namespace Core

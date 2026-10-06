@@ -338,6 +338,41 @@ s32 PS4_SYSV_ABI sceKernelMapNamedFlexibleMemory(void** addr_in_out, u64 len, s3
     return ret;
 }
 
+// System-pool flexible memory, used by system software and homebrew (the PS4 Homebrew Store
+// maps its whole 2.5 GB heap this way). It comes from a separate pool on real hardware, so it
+// doesn't count against the game's flexible memory budget; mapped like upstream shadPS4.
+s32 PS4_SYSV_ABI sceKernelMapNamedSystemFlexibleMemory(void** addr_in_out, u64 len, s32 prot,
+                                                       s32 flags, const char* name) {
+    LOG_INFO(Kernel_Vmm, "in_addr = {}, len = {:#x}, prot = {:#x}, flags = {:#x}, name = '{}'",
+             fmt::ptr(*addr_in_out), len, prot, flags, name ? name : "");
+    if (len == 0 || !Common::Is16KBAligned(len)) {
+        LOG_ERROR(Kernel_Vmm, "len is 0 or not 16kb multiple");
+        return ORBIS_KERNEL_ERROR_EINVAL;
+    }
+    if (name == nullptr) {
+        return ORBIS_KERNEL_ERROR_EFAULT;
+    }
+    if (std::strlen(name) >= ORBIS_KERNEL_MAXIMUM_NAME_LENGTH) {
+        return ORBIS_KERNEL_ERROR_ENAMETOOLONG;
+    }
+    auto map_flags = static_cast<Core::MemoryMapFlags>(flags);
+    VAddr in_addr = reinterpret_cast<VAddr>(*addr_in_out);
+    if (True(map_flags & Core::MemoryMapFlags::Fixed) && in_addr == 0) {
+        if (Common::ElfInfo::FW_170 <= g_sdk_version) {
+            return ORBIS_KERNEL_ERROR_EINVAL;
+        }
+        map_flags &= ~Core::MemoryMapFlags::Fixed;
+    }
+    if (in_addr == 0) {
+        in_addr = 0x880000000;
+    }
+    auto* memory = Core::Memory::Instance();
+    const auto ret = memory->MapMemory(addr_in_out, in_addr, len, static_cast<Core::MemoryProt>(prot),
+                                       map_flags, Core::VMAType::System, name);
+    LOG_INFO(Kernel_Vmm, "out_addr = {}", fmt::ptr(*addr_in_out));
+    return ret;
+}
+
 s32 PS4_SYSV_ABI sceKernelMapFlexibleMemory(void** addr_in_out, u64 len, s32 prot, s32 flags) {
     return sceKernelMapNamedFlexibleMemory(addr_in_out, len, prot, flags, "anon");
 }
@@ -877,6 +912,7 @@ void RegisterMemory(Core::Loader::SymbolsResolver* sym) {
     LIB_FUNCTION("aNz11fnnzi4", "libkernel_avlfmem", 1, "libkernel",
                  sceKernelAvailableFlexibleMemorySize);
     LIB_FUNCTION("IWIBBdTHit4", "libkernel", 1, "libkernel", sceKernelMapFlexibleMemory);
+    LIB_FUNCTION("kc+LEEIYakc", "libkernel", 1, "libkernel", sceKernelMapNamedSystemFlexibleMemory);
     LIB_FUNCTION("p5EcQeEeJAE", "libkernel", 1, "libkernel", _sceKernelRtldSetApplicationHeapAPI);
     LIB_FUNCTION("2SKEx6bSq-4", "libkernel", 1, "libkernel", sceKernelBatchMap);
     LIB_FUNCTION("kBJzF8x4SyE", "libkernel", 1, "libkernel", sceKernelBatchMap2);

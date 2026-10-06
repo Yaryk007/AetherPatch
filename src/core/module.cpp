@@ -278,6 +278,18 @@ void Module::LoadModuleToMemory(u32& max_tls_index) {
 }
 
 void Module::LoadDynamicInfo() {
+    // The string table has to be known before any entry that names something (DT_NEEDED,
+    // modules, libraries). Sony's toolchain emits DT_SCE_STRTAB first, but some homebrew
+    // toolchains put it after those entries (e.g. the PS4 Homebrew Store), which used to
+    // dereference a null table here. The real loader doesn't depend on the order either.
+    for (const auto* dyn = reinterpret_cast<elf_dynamic*>(m_dynamic.data()); dyn->d_tag != DT_NULL;
+         dyn++) {
+        if (dyn->d_tag == DT_SCE_STRTAB) {
+            dynamic_info.str_table = reinterpret_cast<char*>(m_dynamic_data.data() + dyn->d_un.d_ptr);
+        } else if (dyn->d_tag == DT_SCE_STRSZ) {
+            dynamic_info.str_table_size = dyn->d_un.d_val;
+        }
+    }
     for (const auto* dyn = reinterpret_cast<elf_dynamic*>(m_dynamic.data()); dyn->d_tag != DT_NULL;
          dyn++) {
         switch (dyn->d_tag) {

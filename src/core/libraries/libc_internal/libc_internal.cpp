@@ -9,6 +9,7 @@
 #include "libc_internal.h"
 #include "libc_internal_crt.h"
 #include "libc_internal_cxa.h"
+#include "libc_internal_homebrew.h"
 #include "libc_internal_io.h"
 #include "libc_internal_math.h"
 #include "libc_internal_memory.h"
@@ -25,6 +26,7 @@ void RegisterLib(Core::Loader::SymbolsResolver* sym) {
     RegisterlibSceLibcInternalIo(sym);
     RegisterlibSceLibcInternalThreads(sym);
     RegisterlibSceLibcInternalCrt(sym);
+    RegisterlibSceLibcInternalHomebrew(sym);
 }
 
 void ForceRegisterLib(Core::Loader::SymbolsResolver* sym) {

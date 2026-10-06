@@ -589,6 +589,8 @@ set(HLE_LIBC_INTERNAL_LIB src/core/libraries/libc_internal/libc_internal.cpp
                  src/core/libraries/libc_internal/libc_internal_threads.h
                  src/core/libraries/libc_internal/libc_internal_crt.cpp
                  src/core/libraries/libc_internal/libc_internal_crt.h
+                 src/core/libraries/libc_internal/libc_internal_homebrew.cpp
+                 src/core/libraries/libc_internal/libc_internal_homebrew.h
                  src/core/libraries/libc_internal/printf.h
 )
 

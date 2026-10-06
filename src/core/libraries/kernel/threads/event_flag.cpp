@@ -1,6 +1,9 @@
 // SPDX-FileCopyrightText: Copyright 2024 shadPS4 Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <cstring>
+#include <string>
+#include <unordered_map>
 #include <condition_variable>
 #include <mutex>
 #include <thread>
@@ -249,14 +252,51 @@ int PS4_SYSV_ABI sceKernelDeleteEventFlag(OrbisKernelEventFlag ef) {
     return ORBIS_OK;
 }
 
-int PS4_SYSV_ABI sceKernelOpenEventFlag() {
-    LOG_ERROR(Kernel_Event, "(STUBBED) called");
-    return ORBIS_OK;
+// Event flags the system software publishes by name, which apps (mostly homebrew) open to read
+// console state. Each is created once with a neutral value: for example SceAutoMountUsbMass has
+// one bit per mounted USB drive, and no drives are mounted here.
+namespace {
+struct SystemEventFlag {
+    const char* name;
+    u64 initial_pattern;
+};
+constexpr SystemEventFlag kSystemEventFlags[] = {
+    {"SceAutoMountUsbMass", 0},
+    {"SceSystemStateMgrInfo", 0},
+};
+std::mutex g_system_flags_mutex;
+std::unordered_map<std::string, OrbisKernelEventFlag> g_system_flags;
+} // namespace
+
+int PS4_SYSV_ABI sceKernelOpenEventFlag(OrbisKernelEventFlag* ef, const char* name) {
+    if (ef == nullptr || name == nullptr) {
+        return ORBIS_KERNEL_ERROR_EINVAL;
+    }
+    std::scoped_lock lock{g_system_flags_mutex};
+    if (const auto it = g_system_flags.find(name); it != g_system_flags.end()) {
+        *ef = it->second;
+        return ORBIS_OK;
+    }
+    for (const auto& flag : kSystemEventFlags) {
+        if (std::strcmp(flag.name, name) == 0) {
+            OrbisKernelEventFlag created = nullptr;
+            const s32 ret = sceKernelCreateEventFlag(&created, name, 0x20, flag.initial_pattern,
+                                                     nullptr);
+            if (ret != ORBIS_OK) {
+                return ret;
+            }
+            g_system_flags.emplace(name, created);
+            *ef = created;
+            return ORBIS_OK;
+        }
+    }
+    LOG_WARNING(Kernel_Event, "Unknown named event flag '{}'", name);
+    return ORBIS_KERNEL_ERROR_ENOENT;
 }
 
-int PS4_SYSV_ABI sceKernelCloseEventFlag() {
-    LOG_ERROR(Kernel_Event, "(STUBBED) called");
-    return ORBIS_OK;
+// Opened flags are shared and live for the whole process; closing just drops this reference.
+int PS4_SYSV_ABI sceKernelCloseEventFlag(OrbisKernelEventFlag ef) {
+    return ef == nullptr ? ORBIS_KERNEL_ERROR_ESRCH : ORBIS_OK;
 }
 
 int PS4_SYSV_ABI sceKernelClearEventFlag(OrbisKernelEventFlag ef, u64 bitPattern) {

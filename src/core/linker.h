@@ -95,6 +95,10 @@ public:
     explicit Linker();
     ~Linker();
 
+    // Address guest code can call for an HLE function record (FEX builds hand out a veneer,
+    // allocated on first use). 0 if none could be produced.
+    u64 GetCallableAddress(const Loader::SymbolRecord& record);
+
     Loader::SymbolsResolver& GetHLESymbols() {
         return m_hle_symbols;
     }

@@ -23,6 +23,12 @@ struct SysModules {
     HLEInitDef callback;
 };
 
+// Widescreen hack: when non-zero, replaces the game's internal render resolution (the size
+// reported to the game as the PS4's screen) after per-game settings load. Set by the iOS app
+// to a resolution matching the device's aspect ratio so games that size their view from it
+// render wider than 16:9.
+void SetResolutionOverride(u32 width, u32 height);
+
 class Emulator {
 public:
     Emulator();

@@ -1,13 +1,15 @@
 diff --git a/src/apple/battery.cpp b/src/apple/battery.cpp
-index 1596259..8c2ec65 100644
+index 1596259..15484a3 100644
 --- a/src/apple/battery.cpp
 +++ b/src/apple/battery.cpp
-@@ -3,7 +3,10 @@
+@@ -3,7 +3,12 @@
  
  #include "hwinfo/platform.h"
  
 -#ifdef HWINFO_APPLE
++#ifdef __APPLE__
 +#include <TargetConditionals.h>
++#endif
 +
 +// IOKit is macOS-only; AetherPS4 on iOS only uses hwinfo's CPU/RAM/OS queries.
 +#if defined(HWINFO_APPLE) && !TARGET_OS_IPHONE
@@ -15,15 +17,17 @@ index 1596259..8c2ec65 100644
  #include <CoreFoundation/CoreFoundation.h>
  #include <IOKit/ps/IOPSKeys.h>
 diff --git a/src/apple/disk.cpp b/src/apple/disk.cpp
-index f09e60e..4635be5 100644
+index f09e60e..4668be4 100644
 --- a/src/apple/disk.cpp
 +++ b/src/apple/disk.cpp
-@@ -5,7 +5,10 @@
+@@ -5,7 +5,12 @@
  
  #include <cstdint>
  
 -#ifdef HWINFO_APPLE
++#ifdef __APPLE__
 +#include <TargetConditionals.h>
++#endif
 +
 +// IOKit is macOS-only; AetherPS4 on iOS only uses hwinfo's CPU/RAM/OS queries.
 +#if defined(HWINFO_APPLE) && !TARGET_OS_IPHONE
@@ -31,15 +35,17 @@ index f09e60e..4635be5 100644
  #include <CoreFoundation/CoreFoundation.h>
  #include <IOKit/IOBSD.h>
 diff --git a/src/apple/mainboard.cpp b/src/apple/mainboard.cpp
-index b534dba..fd6ce78 100644
+index b534dba..15fe4a7 100644
 --- a/src/apple/mainboard.cpp
 +++ b/src/apple/mainboard.cpp
-@@ -3,7 +3,10 @@
+@@ -3,7 +3,12 @@
  
  #include "hwinfo/platform.h"
  
 -#ifdef HWINFO_APPLE
++#ifdef __APPLE__
 +#include <TargetConditionals.h>
++#endif
 +
 +// IOKit is macOS-only; AetherPS4 on iOS only uses hwinfo's CPU/RAM/OS queries.
 +#if defined(HWINFO_APPLE) && !TARGET_OS_IPHONE
