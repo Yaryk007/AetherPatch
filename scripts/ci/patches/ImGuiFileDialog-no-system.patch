@@ -1,0 +1,38 @@
+diff --git a/ImGuiFileDialog.cpp b/ImGuiFileDialog.cpp
+index 6658912..11a81d9 100644
+--- a/ImGuiFileDialog.cpp
++++ b/ImGuiFileDialog.cpp
+@@ -457,12 +457,10 @@ public:
+                 emscripten_run_script(str.c_str());
+                 res = true;
+ #elif defined(_IGFD_UNIX_)
+-                char buffer[PATH_MAX] = {};
+-                snprintf(buffer, PATH_MAX, "mkdir -p \"%s\"", vName.c_str());
+-                const int dir_err = std::system(buffer);
+-                if (dir_err != -1) {
+-                    res = true;
+-                }
++                // std::system is unavailable on iOS.
++                std::error_code ec;
++                std::filesystem::create_directories(vName, ec);
++                res = !ec;
+ #endif  // _IGFD_WIN_
+                 if (!res) {
+                     std::cout << "Error creating directory " << vName << std::endl;
+@@ -611,12 +609,10 @@ public:
+                 emscripten_run_script(str.c_str());
+                 res = true;
+ #elif defined(_IGFD_UNIX_)
+-                char buffer[PATH_MAX] = {};
+-                snprintf(buffer, PATH_MAX, "mkdir -p \"%s\"", vName.c_str());
+-                const int dir_err = std::system(buffer);
+-                if (dir_err != -1) {
+-                    res = true;
+-                }
++                // std::system is unavailable on iOS.
++                std::error_code ec;
++                std::filesystem::create_directories(vName, ec);
++                res = !ec;
+ #endif  // _IGFD_WIN_
+                 if (!res) {
+                     std::cout << "Error creating directory " << vName << std::endl;

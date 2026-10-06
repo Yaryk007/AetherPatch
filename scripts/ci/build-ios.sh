@@ -32,6 +32,18 @@ IOS_CMAKE_ARGS=(
     -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY
 )
 
+# iOS fixes for submodules: scripts/ci/patches/<dir under externals>-<what>.patch
+for patch in "$ROOT"/scripts/ci/patches/*.patch; do
+    [[ -e "$patch" ]] || continue
+    name="$(basename "$patch")"
+    dir="$ROOT/externals/${name%%-*}"
+    if git -C "$dir" apply --reverse --check "$patch" 2>/dev/null; then
+        continue # already applied
+    fi
+    echo "==> applying $name"
+    git -C "$dir" apply "$patch"
+done
+
 echo "==> [1/3] FEXCore for iOS"
 cmake -S "$FEX_SRC" -B "$FEX_BUILD" "${IOS_CMAKE_ARGS[@]}" \
     -DBUILD_FEXCORE_ONLY=ON \
@@ -73,7 +85,7 @@ cmake -S "$ROOT" -B "$CORE_BUILD" "${IOS_CMAKE_ARGS[@]}" \
     -DENABLE_TESTS=OFF \
     -DIMGUI_FONT_EMBED_EXECUTABLE="$HOST_TOOLS/binary_to_compressed_c" \
     -DALLOWS_ONESHOT_TIMERS_WITH_TIMEOUT_ZERO_EXITCODE=1
-cmake --build "$CORE_BUILD" --target shadps4_ios --parallel "$JOBS"
+cmake --build "$CORE_BUILD" --target shadps4_ios --parallel "$JOBS" -- -k 0
 
 # The Xcode project links each static library by its path inside runtime/build/shadps4-ios.
 # FEXCore's go into fexcore-ios-libs/; everything else is built by its ninja output path.
