@@ -51,7 +51,10 @@ cmake -S "$FEX_SRC" -B "$FEX_BUILD" "${IOS_CMAKE_ARGS[@]}" \
     -DENABLE_ZYDIS=OFF \
     -DENABLE_FEXCORE_PROFILER=OFF \
     -DTUNE_CPU=none
-cmake --build "$FEX_BUILD" --parallel "$JOBS"
+# BUILD_FEXCORE_ONLY marks FEXCore and its helpers EXCLUDE_FROM_ALL, so name them.
+cmake --build "$FEX_BUILD" --parallel "$JOBS" --target \
+    FEXCore FEXCore_Base Common CommonTools JemallocLibs cpp-optparse \
+    tiny-json fmt xxhash cephes_128bit softfloat_3e rpmalloc
 
 echo "==> [2/3] shadPS4 core (libshadps4_ios.a) for iOS"
 cmake -S "$ROOT" -B "$CORE_BUILD" "${IOS_CMAKE_ARGS[@]}" \
