@@ -461,3 +461,6 @@ runtime/pins/**/*.debug
 /build/
 /runtime/build/
 /.ccache/
+
+# Device logs shared for debugging
+/fix stuff/
