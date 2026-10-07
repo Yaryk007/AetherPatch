@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include "common/debug.h"
+#include "common/string_util.h"
 #include "common/elf_info.h"
 #include "common/frame_presented_flag.h"
 #include "common/io_file.h"
@@ -943,6 +944,20 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame) {
     // Log first 64, then every 16th, always around suspected 32-present boundary.
     const bool trace = trace_id < 64 || (trace_id % 16u) == 0u ||
                        (trace_id >= 28 && trace_id <= 40);
+    // Testing aid: SHADPS4_SCREENSHOT_AT="600,1800" saves a game-only screenshot at those
+    // present counts, for checking what a game draws without a person at the screen.
+    static const std::vector<u32> screenshot_at = [] {
+        std::vector<u32> frames;
+        if (const char* env = std::getenv("SHADPS4_SCREENSHOT_AT")) {
+            for (const auto& part : Common::SplitString(env, ',')) {
+                frames.push_back(static_cast<u32>(std::strtoul(part.c_str(), nullptr, 10)));
+            }
+        }
+        return frames;
+    }();
+    if (std::ranges::find(screenshot_at, trace_id) != screenshot_at.end()) {
+        VideoCore::RequestScreenshot(VideoCore::ScreenshotRequest::GameOnly);
+    }
     // Free the frame for reuse
     const auto free_frame = [&] {
         if (!is_reusing_frame) {
